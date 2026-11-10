@@ -1,0 +1,28 @@
+{
+  "name": "weakspot-ts",
+  "version": "0.1.0",
+  "description": "Mutation checks on the lines a change touched, for TypeScript projects tested with Vitest. Finds the weak spots in a test suite without a repo-wide run.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "weakspot": "./bin/weakspot.js"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test test/*.test.ts",
+    "test:contract": "node --test test/contract/*.test.ts",
+    "weakspot": "node bin/weakspot.js"
+  },
+  "dependencies": {
+    "@stryker-mutator/core": "10.1.1",
+    "@stryker-mutator/vitest-runner": "10.1.1",
+    "vitest": "5.0.5"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.0",
+    "typescript": "6.0.3"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "skip": [
+    "\\.(dto|entity|module|controller|enum|types|constants|config|interface|schema|migration|stories)\\.tsx?$",
+    "(^|/)(index|main)\\.ts$",
+    "\\.d\\.ts$",
+    "(^|/)migrations/",
+    "(^|/)__generated__/",
+    "\\.(spec|test|e2e-spec)\\.tsx?$"
+  ],
+  "excludedMutations": ["StringLiteral", "ObjectLiteral", "BlockStatement"],
+  "timeoutMs": 3000,
+  "concurrency": 8,
+  "vitest": { "pool": "forks" }
+}
