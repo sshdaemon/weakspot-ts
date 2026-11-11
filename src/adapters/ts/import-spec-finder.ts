@@ -4,7 +4,7 @@ import ts from 'typescript';
 import { repoRelative } from '../../change/paths.ts';
 import type { Package, SpecSet } from '../../change/types.ts';
 import type { ImportsReader, SpecFinder } from '../../ports/spec-finder.ts';
-import { DEFAULT_SPEC_PATTERNS, isAnySpec, isUnitSpec, type SpecPatterns } from '../../change/spec-kind.ts';
+import { DEFAULT_SPEC_PATTERNS, isAnySpec, isE2eSpec, isUnitSpec, type SpecPatterns } from '../../change/spec-kind.ts';
 
 const SOURCE = /\.(ts|tsx|mts|cts)$/;
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'build', '.next', 'coverage', '.git', '.turbo']);
@@ -21,16 +21,19 @@ interface PackageIndex {
  * Finds the specs that reach a file through imports, resolved with the TypeScript compiler API
  * against the package's tsconfig (so `paths` aliases and workspace packages resolve). Depth 1 is
  * a spec importing the file; depth 2 allows one intermediate module. The package's import graph
- * is read once per run.
+ * is read once per run. `kind` says which specs count: unit specs (the unit lane) or e2e specs
+ * (an `imports` source in a later lane); the other kind is left out of the graph either way.
  */
 export class ImportSpecFinder implements SpecFinder, ImportsReader {
   private readonly depth: number;
   private readonly patterns: SpecPatterns;
+  private readonly kind: 'unit' | 'e2e';
   private readonly indexes = new Map<string, PackageIndex>();
 
-  constructor(depth = 1, patterns: SpecPatterns = DEFAULT_SPEC_PATTERNS) {
+  constructor(depth = 1, patterns: SpecPatterns = DEFAULT_SPEC_PATTERNS, kind: 'unit' | 'e2e' = 'unit') {
     this.depth = depth;
     this.patterns = patterns;
+    this.kind = kind;
   }
 
   find(repoRoot: string, pkg: Package, file: string, explicit: readonly string[]): SpecSet {
@@ -81,7 +84,7 @@ export class ImportSpecFinder implements SpecFinder, ImportsReader {
     const mocks = new Map<string, Set<string>>();
     for (const file of listSources(realpathSafe(pkg.dir))) {
       const rel = repoRelative(realRoot, file);
-      if (isUnitSpec(rel, this.patterns)) specs.add(file);
+      if (this.kind === 'unit' ? isUnitSpec(rel, this.patterns) : isE2eSpec(rel, this.patterns)) specs.add(file);
       else if (isAnySpec(rel, this.patterns)) continue;
       const resolved = resolveImports(file, options);
       if (resolved.mocked.size > 0) mocks.set(file, resolved.mocked);
