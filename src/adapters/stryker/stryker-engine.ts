@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { escapeGlob } from '../../change/glob.ts';
 import { repoRelative } from '../../change/paths.ts';
 import { LineRange } from '../../change/ranges.ts';
 import type { LineRange as Range } from '../../change/types.ts';
@@ -47,15 +48,22 @@ export class TestsFailBeforeMutationError extends Error {
  */
 export class StrykerEngine implements MutationEngine {
   readonly name = 'stryker';
+  readonly workerIdVariable = 'STRYKER_MUTATOR_WORKER';
 
   async run(plan: PackagePlan, runner: TestRunner, opts: EngineRunOptions): Promise<EngineRunResult> {
     const slug = plan.pkg.name.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '');
     // Two packages can share a slug (`@scope/web` and `scope-web`); the dir hash keeps them apart.
-    const dir = path.join(opts.workDir, `${slug}-${createHash('sha1').update(plan.pkg.dir).digest('hex').slice(0, 8)}`);
+    const dir = path.join(opts.workDir, `${slug}-${createHash('sha1').update(plan.pkg.dir).digest('hex').slice(0, 8)}-${plan.lane.name}`);
     mkdirSync(dir, { recursive: true });
     const shimPath = runner.writeShim(
       plan.pkg,
-      { root: 'cwd', include: plan.specs.map((s) => repoRelative(plan.pkg.dir, path.join(opts.repoRoot, s))) },
+      {
+        root: 'cwd',
+        include: plan.specs.map((s) => repoRelative(plan.pkg.dir, path.join(opts.repoRoot, s))),
+        env: plan.lane.env,
+        workerIdVariable: this.workerIdVariable,
+        workerOffset: opts.workerOffset,
+      },
       path.join(dir, 'vitest.shim.mts'),
     );
     const reportPath = path.join(dir, 'stryker-report.json');
@@ -70,9 +78,11 @@ export class StrykerEngine implements MutationEngine {
       jsonReporter: { fileName: reportPath },
       tempDirName: path.join(dir, 'tmp'),
       cleanTempDir: 'always',
+      // The package's own build output is never what its specs import; copying it only slows the sandbox. Anchored, so `src/build/` stays.
+      ignorePatterns: ['/dist', '/build', '/coverage', '/.turbo'],
       incremental: false,
-      concurrency: opts.concurrency,
-      timeoutMS: opts.timeoutMs,
+      concurrency: plan.lane.concurrency,
+      timeoutMS: plan.lane.timeoutMs,
       logLevel: 'info',
       fileLogLevel: 'off',
       allowConsoleColors: false,
@@ -121,8 +131,9 @@ export class StrykerEngine implements MutationEngine {
       const repoRel = repoRelative(opts.repoRoot, path.resolve(plan.pkg.dir, file));
       for (const m of entry.mutants) {
         mutants.push({
-          id: `${repoRel}#${m.id}`,
+          id: `${repoRel}#${plan.lane.name}#${m.id}`,
           file: repoRel,
+          lane: plan.lane.name,
           mutator: m.mutatorName,
           start: m.location.start,
           end: m.location.end,
@@ -145,7 +156,7 @@ export class StrykerEngine implements MutationEngine {
  * folders are escaped with bracket classes (`[[]id[]]`). Exported for its unit test.
  */
 export function mutatePatterns(file: string, ranges: readonly Range[] | 'whole'): string[] {
-  const escaped = file.replace(/[[\]{}()*?!]/g, (c) => `[${c}]`);
+  const escaped = escapeGlob(file);
   return ranges === 'whole' ? [escaped] : ranges.map((r) => `${escaped}:${LineRange.format(r)}`);
 }
 

@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Package, SpecSet, TriageDecision } from '../src/change/types.ts';
 import { planPackages } from '../src/mutation/plan.ts';
+import type { Lane } from '../src/mutation/types.ts';
+
+const unit: Lane = { name: 'unit', timeoutMs: 3000, concurrency: 2, env: {} };
 
 const kept = (path: string): TriageDecision => ({ file: { path, status: 'modified', ranges: 'whole' }, kept: true, fileClass: 'logic', reason: '' });
 
@@ -29,8 +32,10 @@ test('planPackages groups by package and names untested and config-less files', 
       ['tools/e.ts', undefined],
       ['tools/f.ts', undefined],
     ]),
+    unit,
   );
   assert.deepEqual(out.untested, ['apps/api/src/d.ts']);
+  assert.ok(out.plans.every((p) => p.lane === unit), 'plans carry the lane');
   assert.deepEqual(out.noTestConfig, ['tools/e.ts', 'tools/f.ts'], 'no known test config wins over an empty spec set: discovery never ran');
   assert.equal(out.plans.length, 2);
   const apiPlan = out.plans.find((p) => p.pkg.name === 'api')!;

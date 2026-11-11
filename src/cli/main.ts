@@ -4,13 +4,17 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { FsPackageLocator } from '../adapters/fs/package-locator.ts';
 import { GitChangeSource, GitError, remoteRepoName } from '../adapters/git/git-change-source.ts';
+import { SpecCommandError } from '../adapters/shell/command-spec-finder.ts';
+import { PrepareError } from '../adapters/shell/run-command.ts';
+import { laneFinder } from '../adapters/spec/lane-finder.ts';
 import { StrykerEngine, TestsFailBeforeMutationError } from '../adapters/stryker/stryker-engine.ts';
 import { ImportSpecFinder } from '../adapters/ts/import-spec-finder.ts';
 import { VitestRunner } from '../adapters/vitest/vitest-runner.ts';
-import { ConfigError, loadConfig, positiveInt, weakspotHome } from './config.ts';
+import { parseLaneSelection } from '../mutation/lanes.ts';
+import { ConfigError, loadConfig, positiveInt, weakspotHome, type ToolConfig } from './config.ts';
 import { diffCommand } from './diff-command.ts';
 import { filesCommand } from './files-command.ts';
-import { UsageError } from './pipeline.ts';
+import { UsageError, type PipelineLane } from './pipeline.ts';
 
 const USAGE = `weakspot <command> [options]
 
@@ -23,11 +27,12 @@ Options
   --base <ref>        diff: ref to compare with (default: the repo config's base, else the remote's default branch)
   --staged            diff: only committed and staged changes
   --committed         diff: only committed changes
-  --specs <a,b>       spec files to run, instead of import discovery (repeatable)
+  --specs <a,b>       spec files to run in the unit lane, instead of import discovery (repeatable)
   --depth <1|2>       import hops between a spec and a source that still count (default from config, 1)
+  --lanes <a,b|all>   run the named lanes (or all) for every file, instead of later lanes taking only what the unit lane left untested
   --out <dir>         where to write report.json and report.md (default: ~/.weakspot/runs/<repo>/<time>)
-  --timeout-ms <n>    per-mutant time limit (default from config, 3000)
-  --concurrency <n>   engine worker count (default: cores, max 8)
+  --timeout-ms <n>    per-mutant time limit for every lane (default from config, 3000)
+  --concurrency <n>   engine worker count for every lane (default: cores, max 8)
   --exclude <a,b>     mutator names to switch off (replaces the config list)
   --quiet             only print the final summary
 `;
@@ -40,7 +45,7 @@ export async function main(argv: string[]): Promise<number> {
       process.stderr.write(`${err.message}\n`);
       return 2;
     }
-    if (err instanceof TestsFailBeforeMutationError) {
+    if (err instanceof TestsFailBeforeMutationError || err instanceof PrepareError || err instanceof SpecCommandError) {
       process.stderr.write(`${err.message}\n`);
       return 1;
     }
@@ -63,6 +68,7 @@ async function run(argv: string[]): Promise<number> {
       committed: { type: 'boolean' },
       specs: { type: 'string', multiple: true },
       depth: { type: 'string' },
+      lanes: { type: 'string' },
       out: { type: 'string' },
       'timeout-ms': { type: 'string' },
       concurrency: { type: 'string' },
@@ -87,21 +93,33 @@ async function run(argv: string[]): Promise<number> {
   if (command === 'files' && (values.base || values.staged || values.committed)) throw new UsageError('--base, --staged and --committed apply to diff only');
 
   const log = values.quiet ? () => {} : (line: string) => process.stderr.write(`${line}\n`);
-  const packages = new FsPackageLocator();
   const baseDir = values.repo ? path.resolve(values.repo) : process.cwd();
   const start = command === 'files' ? path.dirname(path.resolve(rest[0]!.replace(/:\d+(-\d+)?$/, ''))) : process.cwd();
-  const repoRoot = values.repo ? path.resolve(values.repo) : packages.repoRoot(start);
+  const repoRoot = values.repo ? path.resolve(values.repo) : new FsPackageLocator().repoRoot(start);
   const remote = remoteRepoName(repoRoot);
   const { config: loaded, source } = loadConfig(repoRoot, remote);
   const depth = positiveInt(values.depth, '--depth', 'command line') ?? loaded.specDepth;
   if (depth > 2) throw new UsageError('--depth must be 1 or 2');
-  const config = {
+  const timeoutMs = positiveInt(values['timeout-ms'], '--timeout-ms', 'command line');
+  const concurrency = positiveInt(values.concurrency, '--concurrency', 'command line');
+  const config: ToolConfig = {
     ...loaded,
     specDepth: depth,
-    timeoutMs: positiveInt(values['timeout-ms'], '--timeout-ms', 'command line') ?? loaded.timeoutMs,
-    concurrency: positiveInt(values.concurrency, '--concurrency', 'command line') ?? loaded.concurrency,
+    timeoutMs: timeoutMs ?? loaded.timeoutMs,
+    concurrency: concurrency ?? loaded.concurrency,
     excludedMutations: values.exclude ? values.exclude.split(',').filter(Boolean) : loaded.excludedMutations,
+    // A flag applies to every lane; a lane's own limit only stands when the flag is absent.
+    lanes: loaded.lanes.map((l) => ({ ...l, timeoutMs: timeoutMs ?? l.timeoutMs, concurrency: concurrency ?? l.concurrency })),
   };
+  let laneSelection;
+  try {
+    laneSelection = parseLaneSelection(values.lanes, config.lanes.map((l) => l.name));
+  } catch (err) {
+    throw new UsageError(err instanceof Error ? err.message : String(err));
+  }
+  if (values.specs && Array.isArray(laneSelection) && !laneSelection.includes('unit')) {
+    throw new UsageError('--specs names specs for the unit lane; include unit in --lanes or drop --specs');
+  }
   log(`repo: ${repoRoot} (config: ${source})`);
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const out = values.out ? path.resolve(values.out) : path.join(weakspotHome(), 'runs', remote ?? path.basename(repoRoot), stamp);
@@ -113,6 +131,8 @@ async function run(argv: string[]): Promise<number> {
   process.once('SIGTERM', onSignal);
   const started = Date.now();
   const importFinder = new ImportSpecFinder(config.specDepth, config);
+  const extraLanes = config.lanes.slice(1);
+  const lanes: PipelineLane[] = extraLanes.map((l) => ({ config: l, finder: laneFinder(l, config) }));
   const shared = {
     repoRoot,
     baseDir,
@@ -122,7 +142,9 @@ async function run(argv: string[]): Promise<number> {
     engine: new StrykerEngine(),
     specFinder: importFinder,
     imports: importFinder,
-    packages,
+    lanes,
+    laneSelection,
+    packages: new FsPackageLocator(extraLanes.map((l) => l.config!)),
     log,
     commandLine: `weakspot ${argv.join(' ')}`,
     version,

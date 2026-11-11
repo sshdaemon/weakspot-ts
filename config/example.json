@@ -20,5 +20,28 @@
   "concurrency": 8,
   "vitest": {
     "pool": "forks"
+  },
+  "lanes": {
+    "unit": {
+      "timeoutMs": 3000
+    },
+    "e2e": {
+      "config": "vitest-e2e.config.mts",
+      "specs": {
+        "map": [
+          [
+            "^apps/(\\w+)/src/([^/]+)/",
+            "apps/$1/test/suites/$2/**/*.e2e-spec.ts"
+          ]
+        ]
+      },
+      "envPerWorker": {
+        "E2E_DB_NAME_PREFIX": "weakspot_{worker}",
+        "TEST_MAX_WORKERS": "1"
+      },
+      "concurrency": 2,
+      "timeoutMs": 20000,
+      "prepare": "pnpm --filter @acme/database build"
+    }
   }
 }

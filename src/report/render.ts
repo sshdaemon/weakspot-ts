@@ -4,14 +4,14 @@ export function renderMarkdown(r: Report): string {
   const lines: string[] = [];
   lines.push(`# weakspot report`, ``, `Repo: ${r.repo}  `, `Change: ${r.change.kind} (${r.change.detail})  `, `Run: ${r.createdAt}  `, `Command: \`${r.command}\``, ``);
   lines.push(`## Packages`, ``);
-  lines.push(`| Package | Files | Specs | Tests | Mutants | Killed | Survived | No coverage | Timeout | Errors | Ignored | Time |`);
-  lines.push(`| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |`);
+  lines.push(`| Lane | Package | Files | Specs | Tests | Mutants | Killed | Survived | No coverage | Timeout | Errors | Ignored | Time |`);
+  lines.push(`| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |`);
   for (const p of r.packages) {
     const c = p.counts;
     const total = Object.values(c).reduce((a, b) => a + b, 0);
     const errors = (c['CompileError'] ?? 0) + (c['RuntimeError'] ?? 0);
     lines.push(
-      `| ${p.name} | ${p.targets.length} | ${p.specs.length} | ${p.testCount} | ${total} | ${c['Killed'] ?? 0} | ${c['Survived'] ?? 0} | ${c['NoCoverage'] ?? 0} | ${c['Timeout'] ?? 0} | ${errors} | ${c['Ignored'] ?? 0} | ${(p.durationMs / 1000).toFixed(1)}s |`,
+      `| ${p.lane} | ${p.name} | ${p.targets.length} | ${p.specs.length} | ${p.testCount} | ${total} | ${c['Killed'] ?? 0} | ${c['Survived'] ?? 0} | ${c['NoCoverage'] ?? 0} | ${c['Timeout'] ?? 0} | ${errors} | ${c['Ignored'] ?? 0} | ${(p.durationMs / 1000).toFixed(1)}s |`,
     );
   }
   if (r.untested.length > 0) {
@@ -19,6 +19,9 @@ export function renderMarkdown(r: Report): string {
   }
   if (r.viaChangedSpec.length > 0) {
     lines.push(``, `## Mutated whole because a spec that imports them changed`, ``, ...r.viaChangedSpec.map((f) => `- ${f}`));
+  }
+  if (r.viaFallback.length > 0) {
+    lines.push(``, `## No unit spec, checked by a later lane`, ``, ...r.viaFallback.map((f) => `- ${f.file}: ${f.lane} lane`));
   }
   if (r.noTestConfig.length > 0) {
     lines.push(``, `## No test config found`, ``, ...r.noTestConfig.map((f) => `- ${f}`));
@@ -32,7 +35,10 @@ export function renderMarkdown(r: Report): string {
   lines.push(``, `## Survivors (${r.survivors.length})`, ``);
   if (r.survivors.length === 0) lines.push(`None.`);
   const byFile = new Map<string, typeof r.survivors>();
-  for (const s of r.survivors) byFile.set(s.mutant.file, [...(byFile.get(s.mutant.file) ?? []), s]);
+  for (const s of r.survivors) {
+    const key = s.mutant.lane === 'unit' ? s.mutant.file : `${s.mutant.file} (${s.mutant.lane} lane)`;
+    byFile.set(key, [...(byFile.get(key) ?? []), s]);
+  }
   for (const [file, list] of byFile) {
     lines.push(`### ${file}`, ``);
     for (const { mutant: m, kind } of list) {

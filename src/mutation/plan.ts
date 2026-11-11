@@ -1,5 +1,5 @@
 import type { Package, SpecSet, TriageDecision } from '../change/types.ts';
-import type { PackagePlan, Target } from './types.ts';
+import type { Lane, PackagePlan, Target } from './types.ts';
 
 export interface PlanOutcome {
   readonly plans: PackagePlan[];
@@ -17,6 +17,7 @@ export function planPackages(
   kept: readonly TriageDecision[],
   specs: ReadonlyMap<string, SpecSet>,
   packages: ReadonlyMap<string, Package | undefined>,
+  lane: Lane,
 ): PlanOutcome {
   const byPkg = new Map<string, { pkg: Package; targets: Target[]; specs: Set<string> }>();
   const untested: string[] = [];
@@ -41,6 +42,6 @@ export function planPackages(
     entry.targets.push({ file: d.file.path, ranges: d.file.ranges });
     for (const s of set.specs) entry.specs.add(s);
   }
-  const plans = [...byPkg.values()].map((e) => ({ pkg: e.pkg, targets: e.targets, specs: [...e.specs].sort() }));
+  const plans = [...byPkg.values()].map((e) => ({ lane, pkg: e.pkg, targets: e.targets, specs: [...e.specs].sort() }));
   return { plans, untested, noTestConfig };
 }

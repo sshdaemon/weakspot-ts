@@ -17,13 +17,21 @@ Where the [mutation-testing report schema](https://github.com/stryker-mutator/mu
 | Skip pattern | A regular expression on the repo-relative path. A match drops the file from mutation. Configurable. |
 | Class | Either `logic` or `component` (a `.tsx` file). Both are mutated; the class steers noise classes only. |
 | Spec | A test file. Which names are unit specs and which are end-to-end specs comes from the `specPattern` and `e2ePattern` configuration. A spec that mocks a module or only imports its types is not that module's spec. |
-| Spec set | The specs that import a given source file, directly (depth 1) or through one intermediate file (depth 2), found by resolving the specs' imports with the TypeScript compiler, or named with `--specs`. The only tests run for that file. |
+| Spec set | The specs a lane runs for a given source file: in the unit lane, the specs that import it, directly (depth 1) or through one intermediate file (depth 2), found by resolving the specs' imports with the TypeScript compiler, or named with `--specs`; in a later lane, what its spec mapping or command names. |
 | Depth | How many import hops between a spec and a source still count: 1 (the spec imports the file) or 2 (through one intermediate module). |
 | Scope | Which part of a local change `diff` reads: `working` (committed, staged, unstaged and untracked), `staged` (committed and the index) or `committed`. |
-| Untested | A changed file with an empty spec set. Reported as a finding, not mutated. |
+| Untested | A changed file with an empty spec set in every lane that ran. Reported as a finding, not mutated. |
 | No test config | A kept file whose package has no test config the tool knows. Reported, not mutated. |
 | Changed-spec rule | A changed spec causes the sources it imports to be mutated whole, with that spec alone as the spec set. |
-| Package | A directory with its own `package.json` and test config. A monorepo has several; each is run on its own. |
+| Package | A directory with its own `package.json` and test config. A monorepo has several; each is run on its own, once per lane that has a config in it. |
+| Lane | One way of running tests against a package: a runner config, a way to find the specs for a file, and its own limits. Configured by the client; the tool ships only the unit lane. |
+| Unit lane | The lane whose specs are found through imports, using the package's own config. Runs first for every kept file. |
+| E2e lane | A lane whose specs boot the application in the test process and are found by a spec mapping, a command, or e2e specs that import the file. Runs for files the unit lane left untested, unless `--lanes` asks for every file. |
+| Fallback | The rule that sends a file with no specs in one lane to the next configured lane. The report lists such files under "checked by a later lane". |
+| Escalation | The optional rule that also retries a lane's survivors in the next lane. Not built yet. |
+| Spec mapping | A client-configured list of regex-to-glob pairs on the repo-relative path, or a command, that names a lane's specs for a file. |
+| Per-worker env | Environment variables set inside each engine worker, before the package's config loads, with `{worker}` replaced by the worker id, so parallel workers can get distinct resources without the tool knowing what they are. |
+| Prepare | A client command run once in a package before a lane's engine run, for projects whose tests consume built packages. |
 
 ## Mutation
 
@@ -59,7 +67,7 @@ Where the [mutation-testing report schema](https://github.com/stryker-mutator/mu
 
 | Term | Meaning |
 | --- | --- |
-| Survivor | A mutant with verdict survived or no coverage, after suppressions. The unit a consumer acts on. |
+| Survivor | A mutant with verdict survived or no coverage, after suppressions. The unit a consumer acts on. Carries the lane it survived in. |
 | Weak assertion | A survivor whose line is covered: tests reach it and none notices the change. |
 | Static survivor | A surviving static mutant: every test ran against it and none failed. Neither covered nor uncovered in the per-test sense. |
 | Noise class | A heuristic label on a survivor that makes it unlikely to matter: `logging`, `errorMessage`, `catchOnly`, `jsxAttribute`. Hidden by default, listed in a count. |
