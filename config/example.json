@@ -1,14 +1,24 @@
 {
+  "base": "origin/develop",
+  "specDepth": 1,
+  "specPattern": "\\.(spec|test)\\.(ts|tsx|mts|cts)$",
+  "e2ePattern": "\\.(e2e-spec|e2e|integration)\\.(ts|tsx|mts|cts)$",
   "skip": [
     "\\.(dto|entity|module|controller|enum|types|constants|config|interface|schema|migration|stories)\\.tsx?$",
     "(^|/)(index|main)\\.ts$",
     "\\.d\\.ts$",
     "(^|/)migrations/",
     "(^|/)__generated__/",
-    "\\.(spec|test|e2e-spec)\\.tsx?$"
+    "(^|/)(test|tests|__tests__|__mocks__)/"
   ],
-  "excludedMutations": ["StringLiteral", "ObjectLiteral", "BlockStatement"],
+  "excludedMutations": [
+    "StringLiteral",
+    "ObjectLiteral",
+    "BlockStatement"
+  ],
   "timeoutMs": 3000,
   "concurrency": 8,
-  "vitest": { "pool": "forks" }
+  "vitest": {
+    "pool": "forks"
+  }
 }

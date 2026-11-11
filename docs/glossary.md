@@ -16,9 +16,11 @@ Where the [mutation-testing report schema](https://github.com/stryker-mutator/mu
 | Triage | The step that keeps or drops changed files before mutation, by skip patterns and by whether a spec reaches them. |
 | Skip pattern | A regular expression on the repo-relative path. A match drops the file from mutation. Configurable. |
 | Class | Either `logic` or `component` (a `.tsx` file). Both are mutated; the class steers noise classes only. |
-| Spec | A test file. Vitest and Jest both call them specs here, whether named `.spec.ts` or `.test.ts`. |
-| Spec set | The specs that import a given source file, directly (depth 1) or through one intermediate file (depth 2). The only tests run for that file. |
-| Untested | A changed file with an empty spec set. Reported, not mutated. |
+| Spec | A test file. Which names are unit specs and which are end-to-end specs comes from the `specPattern` and `e2ePattern` configuration. A spec that mocks a module or only imports its types is not that module's spec. |
+| Spec set | The specs that import a given source file, directly (depth 1) or through one intermediate file (depth 2), found by resolving the specs' imports with the TypeScript compiler, or named with `--specs`. The only tests run for that file. |
+| Depth | How many import hops between a spec and a source still count: 1 (the spec imports the file) or 2 (through one intermediate module). |
+| Scope | Which part of a local change `diff` reads: `working` (committed, staged, unstaged and untracked), `staged` (committed and the index) or `committed`. |
+| Untested | A changed file with an empty spec set. Reported as a finding, not mutated. |
 | No test config | A kept file whose package has no test config the tool knows. Reported, not mutated. |
 | Changed-spec rule | A changed spec causes the sources it imports to be mutated whole, with that spec alone as the spec set. |
 | Package | A directory with its own `package.json` and test config. A monorepo has several; each is run on its own. |

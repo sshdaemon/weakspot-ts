@@ -2,7 +2,7 @@ import type { Report } from './types.ts';
 
 export function renderMarkdown(r: Report): string {
   const lines: string[] = [];
-  lines.push(`# weakspot report`, ``, `Repo: ${r.repo}  `, `Run: ${r.createdAt}  `, `Command: \`${r.command}\``, ``);
+  lines.push(`# weakspot report`, ``, `Repo: ${r.repo}  `, `Change: ${r.change.kind} (${r.change.detail})  `, `Run: ${r.createdAt}  `, `Command: \`${r.command}\``, ``);
   lines.push(`## Packages`, ``);
   lines.push(`| Package | Files | Specs | Tests | Mutants | Killed | Survived | No coverage | Timeout | Errors | Ignored | Time |`);
   lines.push(`| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |`);
@@ -16,6 +16,9 @@ export function renderMarkdown(r: Report): string {
   }
   if (r.untested.length > 0) {
     lines.push(``, `## Untested (no spec found, not mutated)`, ``, ...r.untested.map((f) => `- ${f}`));
+  }
+  if (r.viaChangedSpec.length > 0) {
+    lines.push(``, `## Mutated whole because a spec that imports them changed`, ``, ...r.viaChangedSpec.map((f) => `- ${f}`));
   }
   if (r.noTestConfig.length > 0) {
     lines.push(``, `## No test config found`, ``, ...r.noTestConfig.map((f) => `- ${f}`));

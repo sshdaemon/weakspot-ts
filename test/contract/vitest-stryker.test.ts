@@ -5,7 +5,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { FsPackageLocator } from '../../src/adapters/fs/package-locator.ts';
-import { SiblingSpecFinder } from '../../src/adapters/fs/sibling-spec-finder.ts';
+import { ImportSpecFinder } from '../../src/adapters/ts/import-spec-finder.ts';
 import { StrykerEngine, TestsFailBeforeMutationError } from '../../src/adapters/stryker/stryker-engine.ts';
 import { VitestRunner } from '../../src/adapters/vitest/vitest-runner.ts';
 import { DEFAULTS } from '../../src/cli/config.ts';
@@ -34,7 +34,8 @@ async function runFixture(name: string, files: string[], specs: string[] = [], o
       config: DEFAULTS,
       runner: new VitestRunner(),
       engine: new StrykerEngine(),
-      specFinder: new SiblingSpecFinder(),
+      specFinder: new ImportSpecFinder(),
+      imports: new ImportSpecFinder(),
       packages: new FsPackageLocator(),
       log: () => {},
       commandLine: 'contract test',
