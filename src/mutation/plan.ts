@@ -22,14 +22,15 @@ export function planPackages(
   const untested: string[] = [];
   const noTestConfig: string[] = [];
   for (const d of kept) {
-    const set = specs.get(d.file.path);
-    if (!set || set.specs.length === 0) {
-      untested.push(d.file.path);
-      continue;
-    }
+    // No known test config comes first: discovery never ran for such a file, so "untested" would overclaim.
     const pkg = packages.get(d.file.path);
     if (!pkg) {
       noTestConfig.push(d.file.path);
+      continue;
+    }
+    const set = specs.get(d.file.path);
+    if (!set || set.specs.length === 0) {
+      untested.push(d.file.path);
       continue;
     }
     let entry = byPkg.get(pkg.dir);

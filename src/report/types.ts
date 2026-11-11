@@ -13,6 +13,8 @@ export interface Finding {
   readonly id: string;
   readonly severity: 'medium';
   readonly category: 'tests';
+  /** `untested`: no spec reaches the file; otherwise the survivor kind. */
+  readonly kind: 'untested' | SurvivorKind;
   readonly where: string;
   readonly claim: string;
   readonly evidence: string;
@@ -29,15 +31,24 @@ export interface PackageSummary {
   readonly artifacts: Record<string, string>;
 }
 
+/** What the run looked at: named files, or a diff against a base. */
+export interface ChangeSummary {
+  readonly kind: 'files' | 'diff';
+  readonly detail: string;
+}
+
 export interface Report {
   readonly tool: 'weakspot-ts';
   readonly version: string;
   readonly createdAt: string;
   readonly repo: string;
   readonly command: string;
+  readonly change: ChangeSummary;
   readonly packages: readonly PackageSummary[];
   readonly dropped: readonly { path: string; reason: string }[];
   readonly untested: readonly string[];
+  /** Sources mutated whole because a spec that imports them changed. */
+  readonly viaChangedSpec: readonly string[];
   readonly noTestConfig: readonly string[];
   /** Things that went wrong without stopping the run, such as a target that produced no mutants. */
   readonly warnings: readonly string[];

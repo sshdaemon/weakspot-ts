@@ -1,3 +1,4 @@
+import type { LineRange } from '../change/types.ts';
 import type { Mutant } from '../mutation/types.ts';
 import type { Finding, Survivor } from './types.ts';
 
@@ -13,11 +14,29 @@ function kindOf(m: Mutant): Survivor['kind'] {
   return m.coveredBy === 0 ? 'noCoverage' : 'weakAssertion';
 }
 
+/** One finding per file no spec reaches: the change is unchecked by any unit test. */
+export function untestedFindings(files: ReadonlyMap<string, readonly LineRange[] | 'whole'>): Finding[] {
+  return [...files].map(([file, ranges]) => {
+    const lines = ranges === 'whole' ? 0 : ranges.reduce((n, r) => n + r.end - r.start + 1, 0);
+    const scope = ranges === 'whole' ? 'the whole file goes' : lines === 1 ? 'its 1 changed line goes' : `its ${lines} changed lines go`;
+    return {
+      id: `${file}#untested`,
+      severity: 'medium',
+      category: 'tests',
+      kind: 'untested',
+      where: file,
+      claim: `No spec exercises ${file}; ${scope} unchecked by unit tests.`,
+      evidence: 'no spec in the package imports the file (a spec that mocks it or imports only its types does not count)',
+    };
+  });
+}
+
 export function findingsOf(survivors: readonly Survivor[]): Finding[] {
   return survivors.map(({ mutant: m, kind }) => ({
     id: m.id,
     severity: 'medium',
     category: 'tests',
+    kind,
     where: `${m.file}:${m.start.line}:${m.start.column}`,
     claim: claimOf(m, kind),
     evidence: `${m.mutator} mutant, status ${m.status}${m.statusReason ? `: ${m.statusReason}` : ''}`,

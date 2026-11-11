@@ -28,7 +28,7 @@ export interface TriageDecision {
 export interface SpecSet {
   readonly file: string;
   readonly specs: readonly string[];
-  readonly how: 'explicit' | 'sibling' | 'none';
+  readonly how: 'explicit' | 'imports' | 'none';
 }
 
 /** A directory with its own package.json and test config. */
