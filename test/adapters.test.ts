@@ -37,6 +37,8 @@ test('config validation names the bad field', () => {
   assert.throws(() => validate({ skip: ['('] }, 'cfg'), /not a valid regex/);
   assert.throws(() => validate({ concurrency: 0 }, 'cfg'), /concurrency must be a positive integer/);
   assert.throws(() => validate({ vitest: [] }, 'cfg'), /vitest must be an object/);
+  assert.throws(() => validate({ specPattern: '[' }, 'cfg'), /specPattern .* not a valid regex/);
+  assert.throws(() => validate({ e2ePattern: '' }, 'cfg'), /e2ePattern must be a non-empty string/);
   const ok = validate({ timeoutMs: 500, vitest: { pool: 'forks' } }, 'cfg');
   assert.equal(ok.timeoutMs, 500);
   assert.deepEqual(ok.vitest, { pool: 'forks' });
