@@ -40,7 +40,7 @@ afterEach(() => {
   rmSync(out, { recursive: true, force: true });
 });
 
-const set = (file: string, specs: string[]): SpecSet => ({ file, specs, how: specs.length ? 'imports' : 'none' });
+const set = (file: string, specs: string[]): SpecSet => ({ file, specs, how: specs.length > 0 ? 'imports' : 'none' });
 const table = (specs: Record<string, string[]>): SpecFinder => ({ find: (_root, _pkg, file) => set(file, specs[file] ?? []) });
 
 function run(
@@ -58,13 +58,13 @@ function run(
   const engine: MutationEngine = {
     name: 'fake',
     workerIdVariable: 'W',
-    run: async (plan): Promise<EngineRunResult> => {
+    run: (plan): Promise<EngineRunResult> => {
       plans.push(plan);
-      return { pkg: plan.pkg, mutants: [], testCount: 0, durationMs: 0, artifacts: {} };
+      return Promise.resolve({ pkg: plan.pkg, mutants: [], testCount: 0, durationMs: 0, artifacts: {} });
     },
   };
-  const runner: TestRunner = { name: 'fake', detect: opts.detect ?? (() => true), writeShim: () => '', engineConfig: () => ({}), run: async () => ({ passed: 0, failed: 0, timedOut: false, durationMs: 0, output: '' }) };
-  const packages: PackageLocator = { repoRoot: () => repo, packageOf: (_root, abs) => [app, lib, e2eOnly].find((p) => abs.startsWith(p.dir + '/')) };
+  const runner: TestRunner = { name: 'fake', detect: opts.detect ?? (() => true), writeShim: () => '', engineConfig: () => ({}), run: () => Promise.resolve({ passed: 0, failed: 0, timedOut: false, durationMs: 0, output: '' }) };
+  const packages: PackageLocator = { repoRoot: () => repo, packageOf: (_root, abs) => [app, lib, e2eOnly].find((p) => abs.startsWith(`${p.dir}/`)) };
   const config = validate({ lanes: { e2e: { config: 'vitest-e2e.config.ts', specs: 'imports' } } }, 'test');
   const input: PipelineInput = {
     changed,

@@ -22,12 +22,12 @@ export class MapSpecFinder implements SpecFinder {
     for (const { re, glob } of this.pairs) {
       const m = re.exec(file);
       if (!m) continue;
-      const pattern = glob.replace(/\$(\d+)/g, (_, n: string) => escapeGlob(m[Number(n)] ?? ''));
+      const pattern = glob.replaceAll(/\$(\d+)/g, (_, n: string) => escapeGlob(m[Number(n)] ?? ''));
       const specs = globSync(pattern, { cwd: repoRoot })
         .map((p) => path.join(repoRoot, p))
         .filter((abs) => isInside(pkg.dir, abs))
         .map((abs) => repoRelative(repoRoot, abs))
-        .sort();
+        .toSorted();
       return { file, specs, how: specs.length > 0 ? 'map' : 'none' };
     }
     return { file, specs: [], how: 'none' };

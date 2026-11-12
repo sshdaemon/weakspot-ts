@@ -12,7 +12,7 @@ export const LineRange = {
   },
   /** Sorts and merges touching or overlapping ranges. */
   merge(ranges: readonly Range[]): Range[] {
-    const sorted = [...ranges].sort((x, y) => x.start - y.start);
+    const sorted = ranges.toSorted((x, y) => x.start - y.start);
     const out: Range[] = [];
     for (const r of sorted) {
       const last = out.at(-1);

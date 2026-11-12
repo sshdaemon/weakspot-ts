@@ -1,17 +1,23 @@
 import type { Report, Survivor } from './types.ts';
 
 export function renderMarkdown(r: Report): string {
-  const lines: string[] = [];
-  lines.push(`# weakspot report`, ``, `Repo: ${r.repo}  `, `Change: ${r.change.kind} (${r.change.detail})  `, `Run: ${r.createdAt}  `, `Command: \`${r.command}\``, ``);
-  lines.push(...packageTable(r));
-  lines.push(...section('Untested (no spec found, not mutated)', r.untested));
-  lines.push(...section('Mutated whole because a spec that imports them changed', r.viaChangedSpec));
-  lines.push(...section('No unit spec, checked by a later lane', r.viaFallback.map((f) => `${f.file}: ${f.lane} lane`)));
-  lines.push(...section('No test config found', r.noTestConfig));
-  lines.push(...section('Warnings', r.warnings));
-  lines.push(...section('Skipped by triage', r.dropped.map((d) => `${d.path}: ${d.reason}`)));
-  lines.push(...survivorList(r.survivors));
-  return lines.join('\n');
+  return [
+    `# weakspot report`,
+    ``,
+    `Repo: ${r.repo}  `,
+    `Change: ${r.change.kind} (${r.change.detail})  `,
+    `Run: ${r.createdAt}  `,
+    `Command: \`${r.command}\``,
+    ``,
+    ...packageTable(r),
+    ...section('Untested (no spec found, not mutated)', r.untested),
+    ...section('Mutated whole because a spec that imports them changed', r.viaChangedSpec),
+    ...section('No unit spec, checked by a later lane', r.viaFallback.map((f) => `${f.file}: ${f.lane} lane`)),
+    ...section('No test config found', r.noTestConfig),
+    ...section('Warnings', r.warnings),
+    ...section('Skipped by triage', r.dropped.map((d) => `${d.path}: ${d.reason}`)),
+    ...survivorList(r.survivors),
+  ].join('\n');
 }
 
 function packageTable(r: Report): string[] {
@@ -57,5 +63,5 @@ function survivorLine({ mutant: m, kind }: Survivor): string {
     noCoverage: 'no test reaches this line',
     weakAssertion: `${m.coveredBy} covering test(s), none fails`,
   };
-  return `- L${m.start.line}:${m.start.column} ${m.mutator} → \`${m.replacement.replace(/\s+/g, ' ').trim() || '(removed)'}\` (${coverage[kind]})`;
+  return `- L${m.start.line}:${m.start.column} ${m.mutator} → \`${m.replacement.replaceAll(/\s+/g, ' ').trim() || '(removed)'}\` (${coverage[kind]})`;
 }

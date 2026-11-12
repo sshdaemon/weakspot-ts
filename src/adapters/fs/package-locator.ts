@@ -35,7 +35,7 @@ export class FsPackageLocator implements PackageLocator {
     while (isInside(repoRoot, dir)) {
       const pkgJson = path.join(dir, 'package.json');
       if (existsSync(pkgJson)) {
-        const testConfig = this.configNames.map((c) => path.join(dir, c)).find((c) => existsSync(c));
+        const testConfig = this.testConfigIn(dir);
         if (testConfig) {
           const name = (JSON.parse(readFileSync(pkgJson, 'utf8')) as { name?: string }).name ?? path.basename(dir);
           return { dir, name, testConfig };
@@ -46,5 +46,9 @@ export class FsPackageLocator implements PackageLocator {
       dir = parent;
     }
     return undefined;
+  }
+
+  private testConfigIn(dir: string): string | undefined {
+    return this.configNames.map((c) => path.join(dir, c)).find((c) => existsSync(c));
   }
 }

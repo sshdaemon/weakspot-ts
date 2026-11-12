@@ -68,7 +68,7 @@ test('git change source: a moved file with one edit yields only the edited line,
   const dir = mkdtempSync(path.join(os.tmpdir(), 'weakspot-git-'));
   try {
     git(dir, 'init', '-q', '-b', 'main');
-    writeFileSync(path.join(dir, 'big.ts'), Array.from({ length: 40 }, (_, i) => `export const v${i} = ${i};`).join('\n') + '\n');
+    writeFileSync(path.join(dir, 'big.ts'), `${Array.from({ length: 40 }, (_, i) => `export const v${i} = ${i};`).join('\n')}\n`);
     git(dir, 'add', '.');
     git(dir, 'commit', '-q', '-m', 'base');
     git(dir, 'checkout', '-q', '-b', 'feature');

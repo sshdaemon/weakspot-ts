@@ -13,5 +13,5 @@ export async function diffCommand(input: DiffCommandInput) {
   const changed = input.source.changes({ repoRoot: input.repoRoot, base: input.base, scope: input.scope });
   input.log(`${changed.length} changed file(s) against ${input.base} (${input.scope})`);
   const specs = resolveInsideRepo(input.repoRoot, input.baseDir, input.specs, 'spec');
-  return runPipeline({ ...input, changed, specs, change: { kind: 'diff', detail: `${input.base}, ${input.scope}` } });
+  return await runPipeline({ ...input, changed, specs, change: { kind: 'diff', detail: `${input.base}, ${input.scope}` } });
 }
