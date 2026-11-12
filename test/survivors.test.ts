@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import type { Mutant } from '../src/mutation/types.ts';
-import { findingsOf, survivorsOf, uninstrumentedFiles } from '../src/report/survivors.ts';
+import { findingsOf, survivorsOf, uninstrumentedFiles, untestedFindings } from '../src/report/survivors.ts';
 
 const mutant = (over: Partial<Mutant>): Mutant => ({
   id: 'src/a.ts#1',
   file: 'src/a.ts',
+  lane: 'unit',
   mutator: 'ConditionalExpression',
   start: { line: 2, column: 5 },
   end: { line: 2, column: 9 },
@@ -39,4 +40,13 @@ test('uninstrumentedFiles flags a file whose every run mutant survived uncovered
   const noCov = [mutant({ id: 'e', file: 'src/z.ts', status: 'NoCoverage', coveredBy: 0 })];
   const staticOnly = [mutant({ id: 'f', file: 'src/s.ts', coveredBy: 0, isStatic: true }), mutant({ id: 'g', file: 'src/s.ts', coveredBy: 0, isStatic: true })];
   assert.deepEqual(uninstrumentedFiles([...broken, ...fine, ...noCov, ...staticOnly]), ['src/x.ts']);
+});
+
+test('untested findings name the lanes that ran', () => {
+  const files = new Map([['src/a.ts', [{ start: 3, end: 4 }] as const]]);
+  const both = untestedFindings(files, () => ['unit', 'e2e'])[0]!;
+  assert.equal(both.claim, 'No spec exercises src/a.ts; its 2 changed lines go unchecked by tests.');
+  assert.match(both.evidence, /^no unit spec in the package imports the file .*; the e2e lane's spec sources name none$/);
+  assert.equal(untestedFindings(files, () => ['e2e'])[0]!.evidence, "the e2e lane's spec sources name none");
+  assert.match(untestedFindings(files)[0]!.evidence, /^no unit spec in the package imports the file/);
 });

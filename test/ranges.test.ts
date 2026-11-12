@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { LineRange, parseFileArg } from '../src/change/ranges.ts';
 
 test('parseFileArg reads path, path:line and path:start-end', () => {

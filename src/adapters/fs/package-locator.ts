@@ -4,9 +4,17 @@ import { isInside } from '../../change/paths.ts';
 import type { Package } from '../../change/types.ts';
 import type { PackageLocator } from '../../ports/package-locator.ts';
 
-const TEST_CONFIGS = ['vitest', 'vite'].flatMap((n) => ['mts', 'ts', 'cts', 'mjs', 'js', 'cjs'].map((e) => `${n}.config.${e}`));
+/** The unit lane's config names, tried in this order. */
+export const UNIT_TEST_CONFIGS = ['vitest', 'vite'].flatMap((n) => ['mts', 'ts', 'cts', 'mjs', 'js', 'cjs'].map((e) => `${n}.config.${e}`));
 
 export class FsPackageLocator implements PackageLocator {
+  private readonly configNames: readonly string[];
+
+  /** `laneConfigs`: further config file names (the lanes') that also make a directory a package. */
+  constructor(laneConfigs: readonly string[] = []) {
+    this.configNames = [...UNIT_TEST_CONFIGS, ...laneConfigs];
+  }
+
   /** Nearest ancestor holding `pnpm-workspace.yaml` or `.git`, else `start` itself. */
   repoRoot(start: string): string {
     let dir = path.resolve(start);
@@ -18,13 +26,16 @@ export class FsPackageLocator implements PackageLocator {
     }
   }
 
-  /** Nearest ancestor of `absFile`, inside `repoRoot`, with a package.json and a test config. */
+  /**
+   * Nearest ancestor of `absFile`, inside `repoRoot`, with a package.json and a test config:
+   * the unit lane's when the package has one, else the first lane config found.
+   */
   packageOf(repoRoot: string, absFile: string): Package | undefined {
     let dir = path.dirname(absFile);
     while (isInside(repoRoot, dir)) {
       const pkgJson = path.join(dir, 'package.json');
       if (existsSync(pkgJson)) {
-        const testConfig = TEST_CONFIGS.map((c) => path.join(dir, c)).find((c) => existsSync(c));
+        const testConfig = this.configNames.map((c) => path.join(dir, c)).find((c) => existsSync(c));
         if (testConfig) {
           const name = (JSON.parse(readFileSync(pkgJson, 'utf8')) as { name?: string }).name ?? path.basename(dir);
           return { dir, name, testConfig };

@@ -14,9 +14,17 @@ function kindOf(m: Mutant): Survivor['kind'] {
   return m.coveredBy === 0 ? 'noCoverage' : 'weakAssertion';
 }
 
-/** One finding per file no spec reaches: the change is unchecked by any unit test. */
-export function untestedFindings(files: ReadonlyMap<string, readonly LineRange[] | 'whole'>): Finding[] {
+/**
+ * One finding per file no lane reaches: the change is unchecked by any test the lanes know.
+ * `lanesOf` names the lanes that looked for the file's specs; the evidence says only what ran.
+ */
+export function untestedFindings(files: ReadonlyMap<string, readonly LineRange[] | 'whole'>, lanesOf: (file: string) => readonly string[] = () => ['unit']): Finding[] {
   return [...files].map(([file, ranges]) => {
+    const lanes = lanesOf(file);
+    const evidence = [
+      ...(lanes.includes('unit') ? ['no unit spec in the package imports the file (a spec that mocks it or imports only its types does not count)'] : []),
+      ...lanes.filter((l) => l !== 'unit').map((l) => `the ${l} lane's spec sources name none`),
+    ].join('; ');
     const lines = ranges === 'whole' ? 0 : ranges.reduce((n, r) => n + r.end - r.start + 1, 0);
     const scope = ranges === 'whole' ? 'the whole file goes' : lines === 1 ? 'its 1 changed line goes' : `its ${lines} changed lines go`;
     return {
@@ -25,8 +33,8 @@ export function untestedFindings(files: ReadonlyMap<string, readonly LineRange[]
       category: 'tests',
       kind: 'untested',
       where: file,
-      claim: `No spec exercises ${file}; ${scope} unchecked by unit tests.`,
-      evidence: 'no spec in the package imports the file (a spec that mocks it or imports only its types does not count)',
+      claim: `No spec exercises ${file}; ${scope} unchecked by tests.`,
+      evidence,
     };
   });
 }
@@ -39,7 +47,7 @@ export function findingsOf(survivors: readonly Survivor[]): Finding[] {
     kind,
     where: `${m.file}:${m.start.line}:${m.start.column}`,
     claim: claimOf(m, kind),
-    evidence: `${m.mutator} mutant, status ${m.status}${m.statusReason ? `: ${m.statusReason}` : ''}`,
+    evidence: `${m.mutator} mutant in the ${m.lane} lane, status ${m.status}${m.statusReason ? `: ${m.statusReason}` : ''}`,
   }));
 }
 
@@ -58,7 +66,10 @@ function claimOf(m: Mutant, kind: Survivor['kind']): string {
  */
 export function uninstrumentedFiles(mutants: readonly Mutant[]): string[] {
   const byFile = new Map<string, Mutant[]>();
-  for (const m of mutants) byFile.set(m.file, [...(byFile.get(m.file) ?? []), m]);
+  for (const m of mutants) {
+    const key = m.lane === 'unit' ? m.file : `${m.file} (${m.lane} lane)`;
+    byFile.set(key, [...(byFile.get(key) ?? []), m]);
+  }
   const out: string[] = [];
   for (const [file, list] of byFile) {
     const run = list.filter((m) => m.status !== 'Ignored' && !m.isStatic);

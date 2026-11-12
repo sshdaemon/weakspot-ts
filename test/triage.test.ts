@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { triage } from '../src/change/triage.ts';
 
 const file = (path: string) => ({ path, status: 'modified' as const, ranges: 'whole' as const });

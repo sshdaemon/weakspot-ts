@@ -21,6 +21,7 @@ export interface Finding {
 }
 
 export interface PackageSummary {
+  readonly lane: string;
   readonly name: string;
   readonly dir: string;
   readonly targets: readonly string[];
@@ -49,6 +50,8 @@ export interface Report {
   readonly untested: readonly string[];
   /** Sources mutated whole because a spec that imports them changed. */
   readonly viaChangedSpec: readonly string[];
+  /** Files with no unit spec that a later lane checked. */
+  readonly viaFallback: readonly { file: string; lane: string }[];
   readonly noTestConfig: readonly string[];
   /** Things that went wrong without stopping the run, such as a target that produced no mutants. */
   readonly warnings: readonly string[];

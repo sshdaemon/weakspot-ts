@@ -20,5 +20,27 @@
   "concurrency": 8,
   "vitest": {
     "pool": "forks"
+  },
+  "lanes": {
+    "unit": {
+      "timeoutMs": 3000
+    },
+    "e2e": {
+      "config": "vitest.e2e.config.mts",
+      "specs": {
+        "map": [
+          [
+            "^services/(\\w+)/src/([^/]+)/",
+            "services/$1/e2e/$2/*.e2e.ts"
+          ]
+        ]
+      },
+      "envPerWorker": {
+        "TEST_DB": "shop_test_{worker}"
+      },
+      "concurrency": 4,
+      "timeoutMs": 30000,
+      "prepare": "npm run build --workspace packages/db"
+    }
   }
 }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { applyChangedSpecRule } from '../src/change/changed-spec.ts';
 import { DEFAULT_SPEC_PATTERNS } from '../src/change/spec-kind.ts';
 import { DEFAULT_SKIP } from '../src/change/triage.ts';
