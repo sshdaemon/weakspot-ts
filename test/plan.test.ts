@@ -10,7 +10,7 @@ const kept = (path: string): TriageDecision => ({ file: { path, status: 'modifie
 
 const api: Package = { dir: '/repo/apps/api', name: 'api', testConfig: '/repo/apps/api/vitest.config.mts' };
 const web: Package = { dir: '/repo/apps/web', name: 'web', testConfig: '/repo/apps/web/vitest.config.mts' };
-const set = (file: string, ...specs: string[]): SpecSet => ({ file, specs, how: specs.length ? 'imports' : 'none' });
+const set = (file: string, ...specs: string[]): SpecSet => ({ file, specs, how: specs.length > 0 ? 'imports' : 'none' });
 
 test('planPackages groups by package and names untested and config-less files', () => {
   const files = ['apps/api/src/a.ts', 'apps/api/src/b.ts', 'apps/web/src/c.ts', 'apps/api/src/d.ts', 'tools/e.ts', 'tools/f.ts'];

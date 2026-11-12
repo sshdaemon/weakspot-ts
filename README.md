@@ -8,7 +8,7 @@ A local tool for coding with LLM agents: a person or an agent runs it against a 
 
 1. Takes a change: what differs from the base branch (`diff`), or files and line ranges you name (`files src/money.ts:12-40`).
 2. Drops files that hold no logic (DTOs, modules, barrels, migrations, specs), by configurable patterns.
-3. Finds the specs that constrain each file by resolving the specs' imports with the TypeScript compiler (so `paths` aliases count), within the file's own package, one hop by default, two with `--depth 2`; `--specs` overrides discovery. A spec that mocks a module with `vi.mock` or only imports its types is not that module's spec. A file with none is reported as untested and becomes a finding, not a mutant.
+3. Finds the specs that constrain each file by resolving the specs' imports with the TypeScript compiler (so `paths` aliases count), within the file's own package, one hop by default, two with `--depth 2`; `--specs` overrides discovery. A spec that mocks a module with `vi.mock` or only imports its types is not that module's spec. A file with no unit spec goes to the next lane you configure, such as an end-to-end suite with a database per worker (see [Lanes](#lanes)), and is reported as untested, a finding rather than a mutant, only when no lane has a spec for it.
 4. A changed spec mutates the sources it imports, whole, against that spec: that is where "I added a test" claims get checked.
 5. Runs [StrykerJS](https://stryker-mutator.io) on exactly those ranges with exactly those specs, so a run takes seconds, not minutes.
 6. Writes `report.md` and `report.json`: what ran, what was skipped and why, and the survivors with how many tests reached each one.
@@ -80,6 +80,7 @@ The words used in code and reports are defined in [docs/glossary.md](docs/glossa
 
 ```bash
 npm run typecheck
+npm run lint          # oxlint, rules in .oxlintrc.json
 npm test              # unit tests
 npm run test:contract # runs the fixture project through Vitest and Stryker (seconds)
 ```

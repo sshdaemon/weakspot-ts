@@ -26,7 +26,7 @@ export function untestedFindings(files: ReadonlyMap<string, readonly LineRange[]
       ...lanes.filter((l) => l !== 'unit').map((l) => `the ${l} lane's spec sources name none`),
     ].join('; ');
     const lines = ranges === 'whole' ? 0 : ranges.reduce((n, r) => n + r.end - r.start + 1, 0);
-    const scope = ranges === 'whole' ? 'the whole file goes' : lines === 1 ? 'its 1 changed line goes' : `its ${lines} changed lines go`;
+    const scope = ranges === 'whole' ? 'the whole file goes' : changedLines(lines);
     return {
       id: `${file}#untested`,
       severity: 'medium',
@@ -37,6 +37,10 @@ export function untestedFindings(files: ReadonlyMap<string, readonly LineRange[]
       evidence,
     };
   });
+}
+
+function changedLines(n: number): string {
+  return n === 1 ? 'its 1 changed line goes' : `its ${n} changed lines go`;
 }
 
 export function findingsOf(survivors: readonly Survivor[]): Finding[] {
@@ -79,6 +83,6 @@ export function uninstrumentedFiles(mutants: readonly Mutant[]): string[] {
 }
 
 function short(s: string): string {
-  const one = s.replace(/\s+/g, ' ').trim();
+  const one = s.replaceAll(/\s+/g, ' ').trim();
   return one.length > 60 ? `${one.slice(0, 57)}...` : one;
 }

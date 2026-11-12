@@ -1,4 +1,4 @@
-import { parseArgs } from 'node:util';
+import type { parseArgs } from 'node:util';
 import { parseLaneSelection, type LaneSelection } from '../mutation/lanes.ts';
 import type { ChangeQuery } from '../ports/change-source.ts';
 import { positiveInt, type ToolConfig } from './config.ts';

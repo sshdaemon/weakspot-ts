@@ -8,7 +8,7 @@ const kept = (path: string): TriageDecision => ({ file: { path, status: 'modifie
 const lane = (name: string): Lane => ({ name, timeoutMs: 1000, concurrency: 1, env: {} });
 const api: Package = { dir: '/repo/apps/api', name: 'api', testConfig: '/repo/apps/api/vitest.config.mts' };
 const apiE2e: Package = { ...api, testConfig: '/repo/apps/api/vitest-e2e.config.mts' };
-const set = (file: string, specs: string[], how: SpecSet['how'] = 'imports'): SpecSet => ({ file, specs, how: specs.length ? how : 'none' });
+const set = (file: string, specs: string[], how: SpecSet['how'] = 'imports'): SpecSet => ({ file, specs, how: specs.length > 0 ? how : 'none' });
 
 /** unit covers a; e2e covers b and a; c has a package but no specs anywhere; d has no package at all; e has only an e2e package. */
 function lookups(calls: string[]): LaneLookup[] {

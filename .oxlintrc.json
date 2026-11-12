@@ -1,0 +1,45 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "eslint",
+    "typescript",
+    "unicorn",
+    "oxc",
+    "import",
+    "node",
+    "vitest"
+  ],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "perf": "error"
+  },
+  "ignorePatterns": [
+    "fixtures/**",
+    "node_modules/**"
+  ],
+  "rules": {
+    "eslint/eqeqeq": "error",
+    "eslint/no-var": "error",
+    "eslint/prefer-const": "error",
+    "eslint/prefer-template": "error",
+    "eslint/no-nested-ternary": "error",
+    "eslint/require-await": "error",
+    "eslint/no-loop-func": "error",
+    "eslint/no-underscore-dangle": "off",
+    "typescript/consistent-type-imports": "error",
+    "typescript/no-explicit-any": "error",
+    "typescript/no-import-type-side-effects": "error",
+    "import/no-duplicates": "error",
+    "import/no-cycle": "error",
+    "unicorn/prefer-node-protocol": "error",
+    "unicorn/prefer-string-replace-all": "error",
+    "unicorn/prefer-import-meta-properties": "error",
+    "unicorn/prefer-code-point": "error",
+    "unicorn/escape-case": "error",
+    "unicorn/explicit-length-check": "error",
+    "unicorn/numeric-separators-style": "error",
+    "unicorn/consistent-existence-index-check": "error",
+    "unicorn/no-immediate-mutation": "error"
+  }
+}

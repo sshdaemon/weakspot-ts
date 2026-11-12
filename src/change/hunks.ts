@@ -49,9 +49,11 @@ export function unquote(s: string): string {
   const inner = s.slice(1, -1);
   const bytes: number[] = [];
   for (let i = 0; i < inner.length; i++) {
-    const c = inner[i]!;
+    // By code point, so a character outside the BMP (an emoji) is not split into lone surrogates.
+    const c = String.fromCodePoint(inner.codePointAt(i)!);
     if (c !== '\\') {
       bytes.push(...Buffer.from(c, 'utf8'));
+      i += c.length - 1;
       continue;
     }
     const n = inner[i + 1] ?? '';
@@ -61,7 +63,7 @@ export function unquote(s: string): string {
       i += 3;
     } else {
       const map: Record<string, number> = { n: 10, t: 9, r: 13, b: 8, f: 12, a: 7, v: 11, '\\': 92, '"': 34 };
-      bytes.push(map[n] ?? n.charCodeAt(0));
+      bytes.push(map[n] ?? n.codePointAt(0) ?? 0);
       i += 1;
     }
   }

@@ -3,7 +3,6 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } 
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'vitest';
-import { fileURLToPath } from 'node:url';
 import { FsPackageLocator } from '../../src/adapters/fs/package-locator.ts';
 import { ImportSpecFinder } from '../../src/adapters/ts/import-spec-finder.ts';
 import { StrykerEngine, TestsFailBeforeMutationError } from '../../src/adapters/stryker/stryker-engine.ts';
@@ -11,14 +10,16 @@ import { VitestRunner } from '../../src/adapters/vitest/vitest-runner.ts';
 import { DEFAULTS } from '../../src/cli/config.ts';
 import { UsageError, filesCommand } from '../../src/cli/files-command.ts';
 
-const fixtures = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../fixtures');
+const fixtures = path.resolve(import.meta.dirname, '../../fixtures');
 
 /** Every path under `dir`, not following the node_modules symlink. */
-function listTree(dir: string): string[] {
-  return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+function listTree(dir: string, out: string[] = []): string[] {
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name);
-    return e.isDirectory() && !e.isSymbolicLink() ? [p, ...listTree(p)] : [p];
-  });
+    out.push(p);
+    if (e.isDirectory() && !e.isSymbolicLink()) listTree(p, out);
+  }
+  return out;
 }
 
 async function runFixture(name: string, files: string[], specs: string[] = [], outOverride?: string) {
@@ -78,7 +79,7 @@ test('vitest + stryker: a source under a [id] folder is matched and mutated', { 
 test('vitest + stryker: a file of module-level code yields static survivors, not a "never loaded" error', { timeout: 180_000 }, async () => {
   const { report } = await runFixture('vitest-basic', ['src/limits.ts']);
   assert.deepEqual(report.warnings, []);
-  assert.ok(report.survivors.length >= 1 && report.survivors.every((s) => s.kind === 'static'), JSON.stringify(report.survivors.map((s) => s.kind)));
+  assert.ok(report.survivors.length > 0 && report.survivors.every((s) => s.kind === 'static'), JSON.stringify(report.survivors.map((s) => s.kind)));
   assert.match(report.findings[0]!.claim, /runs at module load/);
 });
 
