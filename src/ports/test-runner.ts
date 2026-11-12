@@ -16,6 +16,12 @@ export interface ShimOptions {
   readonly root: string | 'cwd';
   /** Spec paths relative to `root`. The only tests included. */
   readonly include: readonly string[];
+  /** Set in the runner process before the package's config loads; `{worker}` becomes the worker id. */
+  readonly env?: Readonly<Record<string, string>>;
+  /** The engine's worker id variable; `0` when it is unset, as in a plain run. */
+  readonly workerIdVariable?: string;
+  /** Added to the engine's worker id, so `{worker}` is unique across every engine process of the run. */
+  readonly workerOffset?: number;
 }
 
 /** The test framework behind a package. Vitest today; the seam for Jest and others. */

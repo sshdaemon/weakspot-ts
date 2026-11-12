@@ -14,6 +14,11 @@ export function isUnitSpec(path: string, patterns: SpecPatterns): boolean {
   return new RegExp(patterns.specPattern).test(path) && !new RegExp(patterns.e2ePattern).test(path);
 }
 
+/** An end-to-end spec: matches the e2e pattern. */
+export function isE2eSpec(path: string, patterns: SpecPatterns): boolean {
+  return new RegExp(patterns.e2ePattern).test(path);
+}
+
 export function isAnySpec(path: string, patterns: SpecPatterns): boolean {
   return new RegExp(patterns.specPattern).test(path) || new RegExp(patterns.e2ePattern).test(path);
 }

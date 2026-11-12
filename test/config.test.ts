@@ -3,9 +3,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { remoteRepoName } from '../src/adapters/git/git-change-source.ts';
 import { DEFAULTS, loadConfig } from '../src/cli/config.ts';
+import { cpus } from 'node:os';
 
 test('loadConfig prefers the remote name, falls back to the folder name, then defaults', () => {
   const home = mkdtempSync(path.join(os.tmpdir(), 'weakspot-home-'));
@@ -51,4 +52,9 @@ test('remoteRepoName reads the repository name from the common origin URL forms'
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('defaults: concurrency is the core count capped at 8, and the unit lane carries the same limits', () => {
+  assert.equal(DEFAULTS.concurrency, Math.max(1, Math.min(8, cpus().length)));
+  assert.deepEqual(DEFAULTS.lanes, [{ name: 'unit', specs: ['imports'], envPerWorker: {}, timeoutMs: 3000, concurrency: DEFAULTS.concurrency }]);
 });

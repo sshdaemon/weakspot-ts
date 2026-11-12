@@ -12,8 +12,8 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test test/*.test.ts",
-    "test:contract": "node --test test/contract/*.test.ts",
+    "test": "vitest run",
+    "test:contract": "vitest run --config vitest.contract.config.ts",
     "weakspot": "node bin/weakspot.js"
   },
   "dependencies": {

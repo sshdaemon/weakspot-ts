@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { parseUnifiedDiff, unquote } from '../src/change/hunks.ts';
 
 const diff = `diff --git a/src/a.ts b/src/a.ts

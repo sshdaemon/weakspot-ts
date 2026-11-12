@@ -28,7 +28,8 @@ export interface TriageDecision {
 export interface SpecSet {
   readonly file: string;
   readonly specs: readonly string[];
-  readonly how: 'explicit' | 'imports' | 'none';
+  /** `map` and `command`: a lane's spec mapping or command named them. */
+  readonly how: 'explicit' | 'imports' | 'map' | 'command' | 'none';
 }
 
 /** A directory with its own package.json and test config. */
