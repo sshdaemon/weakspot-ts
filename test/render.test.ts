@@ -29,7 +29,7 @@ const base: Report = {
   change: { kind: 'diff', detail: 'origin/main' },
   packages: [
     { lane: 'unit', name: 'app', dir: 'app', targets: ['src/a.ts'], specs: ['src/a.test.ts'], testCount: 4, durationMs: 1500, counts: { Killed: 5, Survived: 2, NoCoverage: 1, CompileError: 1, RuntimeError: 1 }, artifacts: {} },
-    { lane: 'e2e', name: 'app', dir: 'app', targets: ['src/b.ts'], specs: ['e2e/b.e2e.ts'], testCount: 1, durationMs: 20000, counts: {}, artifacts: {} },
+    { lane: 'e2e', name: 'app', dir: 'app', targets: ['src/b.ts'], specs: ['e2e/b.e2e.ts'], testCount: 1, durationMs: 20_000, counts: {}, artifacts: {} },
   ],
   dropped: [{ path: 'src/a.dto.ts', reason: 'matches skip pattern' }],
   untested: ['src/c.ts'],

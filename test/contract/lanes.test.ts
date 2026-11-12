@@ -3,7 +3,6 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'vitest';
-import { fileURLToPath } from 'node:url';
 import { MapSpecFinder } from '../../src/adapters/fs/map-spec-finder.ts';
 import { FsPackageLocator } from '../../src/adapters/fs/package-locator.ts';
 import { StrykerEngine } from '../../src/adapters/stryker/stryker-engine.ts';
@@ -13,7 +12,7 @@ import { validate } from '../../src/cli/config.ts';
 import { filesCommand } from '../../src/cli/files-command.ts';
 import type { LaneSelection } from '../../src/mutation/lanes.ts';
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../fixtures/vitest-lanes');
+const repoRoot = path.resolve(import.meta.dirname, '../../fixtures/vitest-lanes');
 
 async function run(files: string[], laneSelection: LaneSelection, out: string, prepared: string) {
   const config = validate(
@@ -25,7 +24,7 @@ async function run(files: string[], laneSelection: LaneSelection, out: string, p
           envPerWorker: { FIXTURE_DB: 'db_{worker}' },
           prepare: `echo prepared > '${prepared}'`,
           concurrency: 2,
-          timeoutMs: 10000,
+          timeoutMs: 10_000,
         },
       },
     },

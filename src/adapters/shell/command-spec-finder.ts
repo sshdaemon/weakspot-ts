@@ -26,7 +26,7 @@ export class CommandSpecFinder implements SpecFinder {
   }
 
   find(repoRoot: string, pkg: Package, file: string): SpecSet {
-    const quoted = `'${file.replace(/'/g, `'\\''`)}'`;
+    const quoted = `'${file.replaceAll('\'', `'\\''`)}'`;
     const cmd = this.command.includes('{file}') ? this.command.split('{file}').join(quoted) : `${this.command} ${quoted}`;
     const run = spawnSync('sh', ['-c', cmd], { cwd: repoRoot, encoding: 'utf8', env: process.env });
     if (run.error) throw new SpecCommandError(`spec command failed to start: ${run.error.message}`);
@@ -35,7 +35,7 @@ export class CommandSpecFinder implements SpecFinder {
       .map((p) => path.resolve(repoRoot, p))
       .filter((abs) => existsSync(abs) && isInside(pkg.dir, abs))
       .map((abs) => repoRelative(repoRoot, abs))
-      .sort();
+      .toSorted();
     return { file, specs, how: specs.length > 0 ? 'command' : 'none' };
   }
 }

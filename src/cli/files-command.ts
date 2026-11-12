@@ -18,7 +18,7 @@ export async function filesCommand(input: FilesCommandInput) {
   const paths = resolveInsideRepo(input.repoRoot, input.baseDir, parsed.map((p) => p.path), 'file');
   const changed: ChangedFile[] = parsed.map((p, i) => ({ path: paths[i]!, status: 'modified', ranges: p.ranges }));
   const specs = resolveInsideRepo(input.repoRoot, input.baseDir, input.specs, 'spec');
-  return runPipeline({
+  return await runPipeline({
     ...input,
     changed,
     specs,

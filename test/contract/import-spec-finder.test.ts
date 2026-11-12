@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { test } from 'vitest';
-import { fileURLToPath } from 'node:url';
 import { FsPackageLocator } from '../../src/adapters/fs/package-locator.ts';
 import { ImportSpecFinder } from '../../src/adapters/ts/import-spec-finder.ts';
 import { CommandSpecFinder } from '../../src/adapters/shell/command-spec-finder.ts';
@@ -10,14 +9,23 @@ import { laneFinder } from '../../src/adapters/spec/lane-finder.ts';
 import { DEFAULT_SPEC_PATTERNS } from '../../src/change/spec-kind.ts';
 import type { LaneConfig } from '../../src/cli/config.ts';
 
-const fixtures = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../fixtures');
+const fixtures = path.resolve(import.meta.dirname, '../../fixtures');
 const locator = new FsPackageLocator();
+
+const e2eLane = (specs: LaneConfig['specs']): LaneConfig => ({ name: 'e2e', config: 'vitest-e2e.config.ts', specs, envPerWorker: {}, timeoutMs: 1, concurrency: 1 });
 
 test('import spec finder: a spec importing the file directly, at depth 1', () => {
   const repo = path.join(fixtures, 'vitest-basic');
   const pkg = locator.packageOf(repo, path.join(repo, 'src/price.ts'))!;
   const set = new ImportSpecFinder(1).find(repo, pkg, 'src/price.ts', []);
   assert.deepEqual(set, { file: 'src/price.ts', specs: ['src/price.test.ts'], how: 'imports' });
+});
+
+test('import spec finder: import(), require() and vi.importActual() reach a module; vi.doMock() replaces it', () => {
+  const repo = path.join(fixtures, 'vitest-basic');
+  const pkg = locator.packageOf(repo, path.join(repo, 'src/loaded.ts'))!;
+  const set = new ImportSpecFinder(1).find(repo, pkg, 'src/loaded.ts', []);
+  assert.deepEqual(set.specs, ['src/loaded-actual.test.ts', 'src/loaded-import.test.ts', 'src/loaded-require.test.ts']);
 });
 
 test('import spec finder: depth 2 adds the spec of an intermediate module', () => {
@@ -85,14 +93,13 @@ test('an e2e-kind finder names the e2e specs that import a file and ignores unit
 test('laneFinder: one source is that finder, several become a first-wins chain that falls through to the mapping', () => {
   const root = path.join(fixtures, 'vitest-lanes');
   const pkg = { dir: path.join(root, 'packages/app'), name: 'fixture-lanes-app', testConfig: path.join(root, 'packages/app/vitest-e2e.config.ts') };
-  const lane = (specs: LaneConfig['specs']): LaneConfig => ({ name: 'e2e', config: 'vitest-e2e.config.ts', specs, envPerWorker: {}, timeoutMs: 1, concurrency: 1 });
   const patterns = { specDepth: 1, ...DEFAULT_SPEC_PATTERNS };
-  assert.ok(laneFinder(lane(['imports']), patterns) instanceof ImportSpecFinder);
-  const chain = laneFinder(lane(['imports', { map: [['^packages/([^/]+)/src/', 'packages/$1/e2e/**/*.e2e.ts']] }]), patterns);
+  assert.ok(laneFinder(e2eLane(['imports']), patterns) instanceof ImportSpecFinder);
+  const chain = laneFinder(e2eLane(['imports', { map: [['^packages/([^/]+)/src/', 'packages/$1/e2e/**/*.e2e.ts']] }]), patterns);
   assert.ok(chain instanceof FirstSpecFinder);
   assert.equal(chain.find(root, pkg, 'packages/app/src/calc.ts', []).how, 'imports');
   assert.equal(chain.find(root, pkg, 'packages/app/src/price.ts', []).how, 'map', 'no e2e spec imports price.ts, so the mapping answers');
-  assert.ok(laneFinder(lane([{ command: 'echo' }]), patterns) instanceof CommandSpecFinder);
-  const toCommand = laneFinder(lane(['imports', { command: "printf 'packages/app/e2e/calc.e2e.ts'" }]), patterns);
+  assert.ok(laneFinder(e2eLane([{ command: 'echo' }]), patterns) instanceof CommandSpecFinder);
+  const toCommand = laneFinder(e2eLane(['imports', { command: "printf 'packages/app/e2e/calc.e2e.ts'" }]), patterns);
   assert.deepEqual(toCommand.find(root, pkg, 'packages/app/src/price.ts', []), { file: 'packages/app/src/price.ts', specs: ['packages/app/e2e/calc.e2e.ts'], how: 'command' });
 });

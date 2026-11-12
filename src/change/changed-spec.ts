@@ -46,7 +46,7 @@ export function applyChangedSpecRule(input: ChangedSpecInput): ChangedSpecOutcom
       const existing = specs.get(file);
       if (existing) {
         if (!existing.specs.includes(spec.path)) {
-          specs.set(file, { file, specs: [...existing.specs, spec.path].sort(), how: existing.specs.length === 0 ? 'imports' : existing.how });
+          specs.set(file, { file, specs: [...existing.specs, spec.path].toSorted(), how: existing.specs.length === 0 ? 'imports' : existing.how });
         }
         continue;
       }
