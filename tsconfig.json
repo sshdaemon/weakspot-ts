@@ -18,6 +18,8 @@
   "include": [
     "src",
     "test",
-    "bin"
+    "bin",
+    "vitest.config.ts",
+    "vitest.contract.config.ts"
   ]
 }

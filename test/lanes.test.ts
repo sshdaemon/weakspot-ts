@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import type { Package, SpecSet, TriageDecision } from '../src/change/types.ts';
 import { assignLanes, parseLaneSelection, type LaneLookup } from '../src/mutation/lanes.ts';
 import type { Lane } from '../src/mutation/types.ts';
@@ -63,6 +63,11 @@ test('an untested file records only the lanes whose finder ran for it', () => {
 
 test('all: every lane runs for every file it can place; nothing counts as fallback', () => {
   const out = assignLanes(files, lookups([]), 'all');
+  const [unitA, e2eA] = out.assignments;
+  assert.deepEqual(unitA!.specs.get('apps/api/src/a.ts')!.specs, ['apps/api/src/a.spec.ts'], 'each assignment carries its own lane\'s spec set');
+  assert.deepEqual(e2eA!.specs.get('apps/api/src/a.ts')!.specs, ['apps/api/test/a.e2e-spec.ts']);
+  assert.equal(unitA!.packages.get('apps/api/src/a.ts'), api);
+  assert.equal(e2eA!.packages.get('apps/api/src/a.ts'), apiE2e);
   assert.deepEqual(out.assignments.map((a) => [a.lane.name, a.kept.map((k) => k.file.path)]), [
     ['unit', ['apps/api/src/a.ts']],
     ['e2e', ['apps/api/src/a.ts', 'apps/api/src/b.ts', 'apps/api/src/e.ts']],
@@ -73,7 +78,7 @@ test('all: every lane runs for every file it can place; nothing counts as fallba
 test('a named list runs only those lanes, for every file', () => {
   const calls: string[] = [];
   const out = assignLanes(files, lookups(calls), ['e2e']);
-  assert.deepEqual(out.assignments.map((a) => a.lane.name), ['e2e']);
+  assert.deepEqual(out.assignments.map((a) => a.lane.name), ['e2e'], 'a lane that placed nothing is not an assignment');
   assert.deepEqual(out.assignments[0]!.kept.map((k) => k.file.path), ['apps/api/src/a.ts', 'apps/api/src/b.ts', 'apps/api/src/e.ts']);
   assert.ok(calls.every((c) => c.startsWith('e2e:')));
   assert.deepEqual(out.untested, ['apps/api/src/c.ts']);
@@ -85,4 +90,9 @@ test('parseLaneSelection', () => {
   assert.deepEqual(parseLaneSelection('e2e, unit', ['unit', 'e2e']), ['e2e', 'unit']);
   assert.throws(() => parseLaneSelection('nope', ['unit', 'e2e']), /unknown lane nope; configured: unit, e2e/);
   assert.throws(() => parseLaneSelection(',', ['unit']), /needs lane names/);
+});
+
+test('fallback: a later lane that places nothing is not an assignment', () => {
+  const out = assignLanes([kept('apps/api/src/a.ts')], lookups([]), 'fallback');
+  assert.deepEqual(out.assignments.map((a) => a.lane.name), ['unit']);
 });

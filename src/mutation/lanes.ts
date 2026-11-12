@@ -48,34 +48,40 @@ export function parseLaneSelection(flag: string | undefined, names: readonly str
 export function assignLanes(kept: readonly TriageDecision[], lanes: readonly LaneLookup[], selection: LaneSelection): LaneOutcome {
   const selected = selection === 'fallback' || selection === 'all' ? lanes : lanes.filter((l) => selection.includes(l.lane.name));
   const assignments: LaneAssignment[] = selected.map((l) => ({ lane: l.lane, kept: [], specs: new Map(), packages: new Map() }));
-  const viaFallback: LaneOutcome['viaFallback'] = [];
-  const untested: string[] = [];
-  const tried = new Map<string, string[]>();
-  const noTestConfig: string[] = [];
+  const outcome = { viaFallback: [] as LaneOutcome['viaFallback'], untested: [] as string[], tried: new Map<string, string[]>(), noTestConfig: [] as string[] };
   for (const d of kept) {
     const file = d.file.path;
-    let placed = false;
-    const ran: string[] = [];
-    for (const [i, lookup] of selected.entries()) {
-      if (placed && selection === 'fallback') break;
-      const pkg = lookup.packageOf(file);
-      if (!pkg) continue;
-      ran.push(lookup.lane.name);
-      const set = lookup.find(pkg, file);
-      if (set.specs.length === 0) continue;
-      const a = assignments[i]!;
+    const { ran, hits } = lookUp(file, selected, selection === 'fallback');
+    for (const hit of hits) {
+      const a = assignments[hit.index]!;
       a.kept.push(d);
-      a.specs.set(file, set);
-      a.packages.set(file, pkg);
-      if (!placed && i > 0 && selection === 'fallback') viaFallback.push({ file, lane: lookup.lane.name });
-      placed = true;
+      a.specs.set(file, hit.set);
+      a.packages.set(file, hit.pkg);
     }
-    if (placed) continue;
-    if (ran.length === 0) noTestConfig.push(file);
+    const first = hits[0];
+    if (first && first.index > 0 && selection === 'fallback') outcome.viaFallback.push({ file, lane: selected[first.index]!.lane.name });
+    if (first) continue;
+    if (ran.length === 0) outcome.noTestConfig.push(file);
     else {
-      untested.push(file);
-      tried.set(file, ran);
+      outcome.untested.push(file);
+      outcome.tried.set(file, ran);
     }
   }
-  return { selected: selected.map((l) => l.lane.name), assignments: assignments.filter((a) => a.kept.length > 0), viaFallback, untested, tried, noTestConfig };
+  return { selected: selected.map((l) => l.lane.name), assignments: assignments.filter((a) => a.kept.length > 0), ...outcome };
+}
+
+/** Asks each lane in turn for the file's specs; `firstOnly` stops at the first lane that has some. `ran` names the lanes whose finder ran. */
+function lookUp(file: string, lanes: readonly LaneLookup[], firstOnly: boolean): { ran: string[]; hits: { index: number; pkg: Package; set: SpecSet }[] } {
+  const ran: string[] = [];
+  const hits: { index: number; pkg: Package; set: SpecSet }[] = [];
+  for (const [index, lookup] of lanes.entries()) {
+    const pkg = lookup.packageOf(file);
+    if (!pkg) continue;
+    ran.push(lookup.lane.name);
+    const set = lookup.find(pkg, file);
+    if (set.specs.length === 0) continue;
+    hits.push({ index, pkg, set });
+    if (firstOnly) break;
+  }
+  return { ran, hits };
 }

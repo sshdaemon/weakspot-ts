@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import type { Package, SpecSet, TriageDecision } from '../src/change/types.ts';
 import { planPackages } from '../src/mutation/plan.ts';
 import type { Lane } from '../src/mutation/types.ts';
