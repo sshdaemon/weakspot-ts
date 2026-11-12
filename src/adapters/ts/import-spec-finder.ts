@@ -60,7 +60,7 @@ export class ImportSpecFinder implements SpecFinder, ImportsReader {
       }
       frontier = next;
     }
-    const specs = [...found].map((s) => repoRelative(realRoot, s)).sort();
+    const specs = [...found].map((s) => repoRelative(realRoot, s)).toSorted();
     return { file, specs, how: specs.length > 0 ? 'imports' : 'none' };
   }
 
@@ -131,12 +131,12 @@ function resolveImports(file: string, options: ts.CompilerOptions): { imports: s
       if (!isTypeOnlyExport(node)) specifiers.add(node.moduleSpecifier.text);
     } else if (ts.isCallExpression(node) && node.arguments[0] && ts.isStringLiteralLike(node.arguments[0])) {
       const callee = node.expression;
-      const text = node.arguments[0].text;
-      if (callee.kind === ts.SyntaxKind.ImportKeyword) specifiers.add(text);
-      else if (ts.isIdentifier(callee) && callee.text === 'require') specifiers.add(text);
+      const specifier = node.arguments[0].text;
+      if (callee.kind === ts.SyntaxKind.ImportKeyword) specifiers.add(specifier);
+      else if (ts.isIdentifier(callee) && callee.text === 'require') specifiers.add(specifier);
       else if (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression) && callee.expression.text === 'vi') {
-        if (callee.name.text === 'importActual') specifiers.add(text);
-        else if (callee.name.text === 'mock' || callee.name.text === 'doMock') mocked.add(text);
+        if (callee.name.text === 'importActual') specifiers.add(specifier);
+        else if (callee.name.text === 'mock' || callee.name.text === 'doMock') mocked.add(specifier);
       }
     }
     ts.forEachChild(node, visit);

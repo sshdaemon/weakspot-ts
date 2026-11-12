@@ -101,7 +101,7 @@ export function validate(raw: unknown, source: string): ToolConfig {
     excludedMutations: stringList(user['excludedMutations'], 'excludedMutations', source) ?? DEFAULTS.excludedMutations,
     timeoutMs: positiveInt(user['timeoutMs'], 'timeoutMs', source) ?? DEFAULTS.timeoutMs,
     concurrency: positiveInt(user['concurrency'], 'concurrency', source) ?? DEFAULTS.concurrency,
-    vitest: { ...DEFAULTS.vitest, ...((vitest as Record<string, unknown> | undefined) ?? {}) },
+    vitest: { ...DEFAULTS.vitest, ...(vitest as Record<string, unknown> | undefined) },
   };
   return { ...top, lanes: lanes(user['lanes'], top, source) };
 }
@@ -154,7 +154,7 @@ function laneLimits(lane: Record<string, unknown>, prefix: string, top: Limits, 
   if (env !== undefined && !isStringRecord(env)) throw new ConfigError(`${source}: ${prefix}.envPerWorker must be an object of string values`);
   const prepare = optionalString(lane['prepare'], `${prefix}.prepare`, source);
   return {
-    envPerWorker: { ...(env ?? {}) },
+    envPerWorker: { ...env },
     ...(prepare ? { prepare } : {}),
     timeoutMs: positiveInt(lane['timeoutMs'], `${prefix}.timeoutMs`, source) ?? top.timeoutMs,
     concurrency: positiveInt(lane['concurrency'], `${prefix}.concurrency`, source) ?? top.concurrency,
@@ -198,9 +198,10 @@ export function positiveInt(value: unknown, name: string, source: string): numbe
   return n;
 }
 
-function checkRegex(value: string, name: string, source: string): void {
+/** The compiled pattern; throws a ConfigError naming the field when it does not compile. */
+function checkRegex(value: string, name: string, source: string): RegExp {
   try {
-    new RegExp(value);
+    return new RegExp(value);
   } catch (err) {
     throw new ConfigError(`${source}: ${name} ${JSON.stringify(value)} is not a valid regex (${err instanceof Error ? err.message : String(err)})`);
   }

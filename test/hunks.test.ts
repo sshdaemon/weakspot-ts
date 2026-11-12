@@ -68,5 +68,7 @@ test('parseUnifiedDiff unquotes a C-quoted header path', () => {
 `;
   assert.deepEqual(parseUnifiedDiff(text).map((f) => f.path), ['src/café.ts']);
   assert.equal(unquote('"a\\tb\\"c"'), 'a\tb"c');
+  assert.equal(unquote('"a\\tb\u{1F600}.ts"'), 'a\tb\u{1F600}.ts', 'a raw character outside the BMP survives');
+  assert.equal(unquote('"caf\\303\\251 \u{1F600}"'), 'caf\u00E9 \u{1F600}');
   assert.equal(unquote('plain'), 'plain');
 });

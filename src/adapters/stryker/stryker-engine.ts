@@ -27,6 +27,9 @@ interface StrykerReport {
   testFiles?: Record<string, { tests: unknown[] }>;
 }
 
+// oxlint-disable-next-line no-control-regex -- Stryker colours its log lines with ANSI escapes
+const ANSI_COLOUR = /\u001B\[\d+m/g;
+
 /** The engine was killed because a sibling run failed; never the cause of a failure. */
 export class CancelledError extends Error {
   constructor(pkgName: string) {
@@ -51,7 +54,7 @@ export class StrykerEngine implements MutationEngine {
   readonly workerIdVariable = 'STRYKER_MUTATOR_WORKER';
 
   async run(plan: PackagePlan, runner: TestRunner, opts: EngineRunOptions): Promise<EngineRunResult> {
-    const slug = plan.pkg.name.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '');
+    const slug = plan.pkg.name.replaceAll(/[^a-z0-9]+/gi, '-').replaceAll(/^-|-$/g, '');
     // Two packages can share a slug (`@scope/web` and `scope-web`); the dir hash keeps them apart.
     const dir = path.join(opts.workDir, `${slug}-${createHash('sha1').update(plan.pkg.dir).digest('hex').slice(0, 8)}-${plan.lane.name}`);
     mkdirSync(dir, { recursive: true });
@@ -98,7 +101,7 @@ export class StrykerEngine implements MutationEngine {
       const onLine = (chunk: Buffer) => {
         log.write(chunk);
         for (const line of chunk.toString().split('\n')) {
-          if (/INFO|WARN|ERROR/.test(line)) opts.log(`[${plan.pkg.name}] ${line.replace(/\u001b\[\d+m/g, '').trim()}`);
+          if (/INFO|WARN|ERROR/.test(line)) opts.log(`[${plan.pkg.name}] ${line.replaceAll(ANSI_COLOUR, '').trim()}`);
         }
       };
       child.stdout.on('data', onLine);
@@ -117,7 +120,7 @@ export class StrykerEngine implements MutationEngine {
     const durationMs = Date.now() - started;
     if (opts.signal.aborted) throw new CancelledError(plan.pkg.name);
     if (!existsSync(reportPath)) {
-      const logText = readFileSync(logPath, 'utf8').replace(/\u001b\[\d+m/g, '');
+      const logText = readFileSync(logPath, 'utf8').replaceAll(ANSI_COLOUR, '');
       const failing = dryRunFailures(logText);
       if (failing !== undefined) {
         throw new TestsFailBeforeMutationError(plan.pkg.name, `${failing || 'see the log'} (${logPath})`);
@@ -167,7 +170,7 @@ export function mutatePatterns(file: string, ranges: readonly Range[] | 'whole')
 export function dryRunFailures(logText: string): string | undefined {
   const lines = logText.split('\n');
   const start = lines.findIndex((l) => /tests failed in the initial test run|initial test run failed/i.test(l));
-  if (start < 0) return undefined;
+  if (start === -1) return undefined;
   const out: string[] = [];
   for (const line of lines.slice(start + 1)) {
     if (/^\d\d:\d\d:\d\d \(\d+\)/.test(line.trim()) || /^\s*at /.test(line)) break;

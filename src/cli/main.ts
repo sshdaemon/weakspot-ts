@@ -1,6 +1,5 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { FsPackageLocator } from '../adapters/fs/package-locator.ts';
 import { GitChangeSource, GitError, remoteRepoName } from '../adapters/git/git-change-source.ts';
@@ -59,7 +58,7 @@ async function run(argv: string[]): Promise<number> {
   const config = withFlags(loaded, values);
   const laneSelection = laneSelectionOf(values, config);
   log(`repo: ${repoRoot} (config: ${source})`);
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const stamp = new Date().toISOString().replaceAll(/[:.]/g, '-');
   const out = values.out ? path.resolve(values.out) : path.join(weakspotHome(), 'runs', remote ?? path.basename(repoRoot), stamp);
 
   const interrupt = new AbortController();
@@ -100,7 +99,7 @@ async function run(argv: string[]): Promise<number> {
 }
 
 function toolVersion(): string {
-  const pkg = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'package.json');
+  const pkg = path.join(import.meta.dirname, '..', '..', 'package.json');
   return (JSON.parse(readFileSync(pkg, 'utf8')) as { version: string }).version;
 }
 

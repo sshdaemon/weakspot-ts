@@ -9,7 +9,7 @@ const repoRoot = '/repo';
 const pkg: Package = { dir: '/repo/app', name: 'app', testConfig: '/repo/app/vitest.config.ts' };
 const changed = (path: string, ranges: ChangedFile['ranges'] = 'whole'): ChangedFile => ({ path, status: 'modified', ranges });
 const kept = (f: ChangedFile): TriageDecision => ({ file: f, kept: true, fileClass: 'logic', reason: '' });
-const set = (file: string, ...specs: string[]): SpecSet => ({ file, specs, how: specs.length ? 'imports' : 'none' });
+const set = (file: string, ...specs: string[]): SpecSet => ({ file, specs, how: specs.length > 0 ? 'imports' : 'none' });
 
 const run = (files: ChangedFile[], keptFiles: ChangedFile[], specs: [string, SpecSet][], imports: Record<string, string[]>) =>
   applyChangedSpecRule({

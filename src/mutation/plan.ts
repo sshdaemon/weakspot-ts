@@ -42,6 +42,6 @@ export function planPackages(
     entry.targets.push({ file: d.file.path, ranges: d.file.ranges });
     for (const s of set.specs) entry.specs.add(s);
   }
-  const plans = [...byPkg.values()].map((e) => ({ lane, pkg: e.pkg, targets: e.targets, specs: [...e.specs].sort() }));
+  const plans = [...byPkg.values()].map((e) => ({ lane, pkg: e.pkg, targets: e.targets, specs: [...e.specs].toSorted() }));
   return { plans, untested, noTestConfig };
 }

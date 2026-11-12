@@ -5,6 +5,10 @@ import { VitestRunner, envSource, shimSource } from '../src/adapters/vitest/vite
 import { validate } from '../src/cli/config.ts';
 import { workerOffsets } from '../src/cli/pipeline.ts';
 
+const planWith = (concurrency: number) => ({ lane: { name: 'l', timeoutMs: 1, concurrency, env: {} }, pkg: { dir: '/p', name: 'p', testConfig: '/p/v.ts' }, targets: [], specs: [] });
+const appWithConfig = (testConfig: string) => ({ dir: '/repo/app', name: 'app', testConfig });
+const laneWithSpecs = (specs: unknown) => ({ lanes: { e2e: { config: 'x.config.ts', specs } } });
+
 test('mutatePatterns escapes glob characters with bracket classes and appends ranges', () => {
   assert.deepEqual(mutatePatterns('src/pages/[id]/price.ts', 'whole'), ['src/pages/[[]id[]]/price.ts']);
   assert.deepEqual(mutatePatterns('src/a.ts', [{ start: 3, end: 9 }, { start: 20, end: 20 }]), ['src/a.ts:3-9', 'src/a.ts:20-20']);
@@ -57,20 +61,17 @@ test('env module fills {worker} from the engine variable plus the run offset, an
 });
 
 test('worker offsets give every plan its own stretch of ids, wider than its concurrency', () => {
-  const lane = (concurrency: number) => ({ name: 'l', timeoutMs: 1, concurrency, env: {} });
-  const plan = (concurrency: number) => ({ lane: lane(concurrency), pkg: { dir: '/p', name: 'p', testConfig: '/p/v.ts' }, targets: [], specs: [] });
-  assert.deepEqual(workerOffsets([plan(8), plan(2), plan(50)]), [0, 100, 200]);
-  assert.deepEqual(workerOffsets([plan(50), plan(1)]), [0, 500]);
+  assert.deepEqual(workerOffsets([planWith(8), planWith(2), planWith(50)]), [0, 100, 200]);
+  assert.deepEqual(workerOffsets([planWith(50), planWith(1)]), [0, 500]);
 });
 
 test('vitest runner detects named config variants, not other tools', () => {
   const runner = new VitestRunner();
-  const pkg = (testConfig: string) => ({ dir: '/repo/app', name: 'app', testConfig });
-  assert.ok(runner.detect(pkg('/repo/app/vitest.config.mts')));
-  assert.ok(runner.detect(pkg('/repo/app/vitest-e2e.config.mts')));
-  assert.ok(runner.detect(pkg('/repo/app/vite.config.ts')));
-  assert.ok(!runner.detect(pkg('/repo/app/jest.config.ts')));
-  assert.ok(!runner.detect(pkg('/repo/app/vitest-e2e.setup.ts')));
+  assert.ok(runner.detect(appWithConfig('/repo/app/vitest.config.mts')));
+  assert.ok(runner.detect(appWithConfig('/repo/app/vitest-e2e.config.mts')));
+  assert.ok(runner.detect(appWithConfig('/repo/app/vite.config.ts')));
+  assert.ok(!runner.detect(appWithConfig('/repo/app/jest.config.ts')));
+  assert.ok(!runner.detect(appWithConfig('/repo/app/vitest-e2e.setup.ts')));
 });
 
 test('lane config: unit first, config and specs required, limits default to the top level', () => {
@@ -102,14 +103,13 @@ test('lane config: unit first, config and specs required, limits default to the 
   assert.throws(() => validate({ lanes: { e2e: { config: 'x.config.ts', specs: 'imports', envPerWorker: { A: 1 } } } }, 'cfg'), /envPerWorker must be an object of string values/);
   assert.throws(() => validate({ lanes: { e2e: { config: 'vitest.config.ts', specs: 'imports' } } }, 'cfg'), /is the unit lane's config/);
   assert.deepEqual(validate({}, 'cfg').lanes.map((l) => l.name), ['unit'], 'no lanes key still gives the unit lane');
-  const lane = (specs: unknown) => ({ lanes: { e2e: { config: 'x.config.ts', specs } } });
   for (const bad of [{ map: [['^a', 1]] }, { map: [['^a']] }, { map: ['^a'] }, { map: [['^a', 'g', 'h']] }]) {
-    assert.throws(() => validate(lane(bad), 'cfg'), /lanes\.e2e\.specs\.map entries are \[regex, glob\] pairs/);
+    assert.throws(() => validate(laneWithSpecs(bad), 'cfg'), /lanes\.e2e\.specs\.map entries are \[regex, glob\] pairs/);
   }
   for (const bad of [{ command: '  ' }, { command: 5 }, { map: 'x' }, 5, null, ['imports', 'other']]) {
-    assert.throws(() => validate(lane(bad), 'cfg'), /lanes\.e2e\.specs entries are "imports"/);
+    assert.throws(() => validate(laneWithSpecs(bad), 'cfg'), /lanes\.e2e\.specs entries are "imports"/);
   }
-  assert.deepEqual(validate(lane([{ map: [['^a', 'g']] }, { command: 'x' }]), 'cfg').lanes[1]!.specs, [{ map: [['^a', 'g']] }, { command: 'x' }]);
+  assert.deepEqual(validate(laneWithSpecs([{ map: [['^a', 'g']] }, { command: 'x' }]), 'cfg').lanes[1]!.specs, [{ map: [['^a', 'g']] }, { command: 'x' }]);
   for (const bad of [[], null, 'e2e']) assert.throws(() => validate({ lanes: bad }, 'cfg'), /lanes must be an object keyed by lane name/);
   for (const bad of [[], null]) assert.throws(() => validate({ lanes: { e2e: bad } }, 'cfg'), /lanes\.e2e must be an object/);
   for (const name of ['1e2e', 'e2e_', '-e2e']) assert.throws(() => validate({ lanes: { [name]: { config: 'x.config.ts', specs: 'imports' } } }, 'cfg'), /must be lowercase letters, digits and dashes/);

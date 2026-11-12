@@ -2,6 +2,23 @@
   "name": "weakspot-ts",
   "version": "0.1.0",
   "description": "Mutation checks on the lines a change touched, for TypeScript projects tested with Vitest. Finds the weak spots in a test suite without a repo-wide run.",
+  "keywords": [
+    "mutation-testing",
+    "stryker",
+    "vitest",
+    "typescript",
+    "testing",
+    "test-quality",
+    "cli"
+  ],
+  "homepage": "https://github.com/sshdaemon/weakspot-ts#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sshdaemon/weakspot-ts.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sshdaemon/weakspot-ts/issues"
+  },
   "type": "module",
   "license": "MIT",
   "bin": {
@@ -12,6 +29,7 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "oxlint --deny-warnings",
     "test": "vitest run",
     "test:contract": "vitest run --config vitest.contract.config.ts",
     "weakspot": "node bin/weakspot.js"
@@ -23,6 +41,7 @@
   },
   "devDependencies": {
     "@types/node": "24.10.0",
+    "oxlint": "1.90.0",
     "typescript": "6.0.3"
   }
 }

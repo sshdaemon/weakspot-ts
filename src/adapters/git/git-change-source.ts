@@ -22,12 +22,8 @@ export class GitChangeSource implements ChangeSource {
     // them), explicit rename detection so a moved file yields only its edited lines. GIT_DIFF_OPTS is
     // dropped from the environment below, since it overrides -U0.
     const diffArgs = ['-c', 'core.quotePath=false', 'diff', '-U0', '--inter-hunk-context=0', '--no-color', '--find-renames=50%', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/', '--diff-filter=AMR'];
-    const text =
-      q.scope === 'committed'
-        ? this.git(q.repoRoot, [...diffArgs, mergeBase, 'HEAD'])
-        : q.scope === 'staged'
-          ? this.git(q.repoRoot, [...diffArgs, '--cached', mergeBase])
-          : this.git(q.repoRoot, [...diffArgs, mergeBase]);
+    const scopeArgs: Record<ChangeQuery['scope'], string[]> = { committed: [mergeBase, 'HEAD'], staged: ['--cached', mergeBase], working: [mergeBase] };
+    const text = this.git(q.repoRoot, [...diffArgs, ...scopeArgs[q.scope]]);
     const files = parseUnifiedDiff(text);
     if (q.scope !== 'working' && files.length > 0) {
       // The engine mutates the working tree, so the ranges must describe it.
