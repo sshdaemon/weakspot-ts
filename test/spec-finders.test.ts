@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { MapSpecFinder } from '../src/adapters/fs/map-spec-finder.ts';
 import { CommandSpecFinder, SpecCommandError } from '../src/adapters/shell/command-spec-finder.ts';
 import type { Package } from '../src/change/types.ts';

@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { FsPackageLocator } from '../../src/adapters/fs/package-locator.ts';
 import { ImportSpecFinder } from '../../src/adapters/ts/import-spec-finder.ts';
+import { CommandSpecFinder } from '../../src/adapters/shell/command-spec-finder.ts';
 import { FirstSpecFinder } from '../../src/adapters/spec/first-spec-finder.ts';
 import { laneFinder } from '../../src/adapters/spec/lane-finder.ts';
 import { DEFAULT_SPEC_PATTERNS } from '../../src/change/spec-kind.ts';
@@ -91,4 +92,7 @@ test('laneFinder: one source is that finder, several become a first-wins chain t
   assert.ok(chain instanceof FirstSpecFinder);
   assert.equal(chain.find(root, pkg, 'packages/app/src/calc.ts', []).how, 'imports');
   assert.equal(chain.find(root, pkg, 'packages/app/src/price.ts', []).how, 'map', 'no e2e spec imports price.ts, so the mapping answers');
+  assert.ok(laneFinder(lane([{ command: 'echo' }]), patterns) instanceof CommandSpecFinder);
+  const toCommand = laneFinder(lane(['imports', { command: "printf 'packages/app/e2e/calc.e2e.ts'" }]), patterns);
+  assert.deepEqual(toCommand.find(root, pkg, 'packages/app/src/price.ts', []), { file: 'packages/app/src/price.ts', specs: ['packages/app/e2e/calc.e2e.ts'], how: 'command' });
 });

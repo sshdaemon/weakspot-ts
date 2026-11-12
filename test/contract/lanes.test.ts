@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { MapSpecFinder } from '../../src/adapters/fs/map-spec-finder.ts';
 import { FsPackageLocator } from '../../src/adapters/fs/package-locator.ts';

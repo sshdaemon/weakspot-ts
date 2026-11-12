@@ -106,55 +106,67 @@ export function validate(raw: unknown, source: string): ToolConfig {
   return { ...top, lanes: lanes(user['lanes'], top, source) };
 }
 
+type Limits = { timeoutMs: number; concurrency: number };
+
 /**
  * `lanes` is an object keyed by lane name, in fallback order. The unit lane always exists and
  * comes first; an entry named `unit` may only change its limits, env and prepare command.
  */
-function lanes(raw: unknown, top: { timeoutMs: number; concurrency: number }, source: string): LaneConfig[] {
+function lanes(raw: unknown, top: Limits, source: string): LaneConfig[] {
   if (raw === undefined) return [unitLane(top, {}, source)];
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new ConfigError(`${source}: lanes must be an object keyed by lane name`);
-  const entries = Object.entries(raw as Record<string, unknown>);
+  if (!isObject(raw)) throw new ConfigError(`${source}: lanes must be an object keyed by lane name`);
   const out: LaneConfig[] = [];
-  for (const [name, value] of entries) {
+  for (const [name, value] of Object.entries(raw)) {
     if (!/^[a-z][a-z0-9-]*$/.test(name)) throw new ConfigError(`${source}: lane name ${JSON.stringify(name)} must be lowercase letters, digits and dashes`);
-    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ConfigError(`${source}: lanes.${name} must be an object`);
-    const lane = value as Record<string, unknown>;
-    if (name === UNIT_LANE) {
-      for (const key of ['config', 'specs']) if (lane[key] !== undefined) throw new ConfigError(`${source}: lanes.unit.${key} cannot be set; the unit lane uses the package's own config and import discovery`);
-      out.push(unitLane(top, lane, source));
-      continue;
-    }
-    const config = optionalString(lane['config'], `lanes.${name}.config`, source);
-    if (!config) throw new ConfigError(`${source}: lanes.${name}.config is required (the runner config file name inside each package)`);
-    if (config.includes('/') || config.includes('\\')) throw new ConfigError(`${source}: lanes.${name}.config must be a file name, not a path`);
-    if (UNIT_TEST_CONFIGS.includes(config)) throw new ConfigError(`${source}: lanes.${name}.config ${JSON.stringify(config)} is the unit lane's config; a lane needs its own`);
-    const twin = out.find((l) => l.config === config);
-    if (twin) throw new ConfigError(`${source}: lanes.${name} and lanes.${twin.name} share the config ${JSON.stringify(config)}; each lane needs its own`);
-    const specs = specSources(lane['specs'], `lanes.${name}.specs`, source);
-    if (specs.length === 0) throw new ConfigError(`${source}: lanes.${name}.specs is required ("imports", { "map": [[regex, glob]] } or { "command": "..." })`);
-    out.push({ name, config, specs, ...laneLimits(lane, `lanes.${name}`, top, source) });
+    if (!isObject(value)) throw new ConfigError(`${source}: lanes.${name} must be an object`);
+    out.push(name === UNIT_LANE ? unitEntry(value, top, source) : laneEntry(name, value, out, top, source));
   }
   if (!out.some((l) => l.name === UNIT_LANE)) out.unshift(unitLane(top, {}, source));
   else if (out[0]!.name !== UNIT_LANE) throw new ConfigError(`${source}: the unit lane must be listed first; later lanes take the files it leaves untested`);
   return out;
 }
 
-function unitLane(top: { timeoutMs: number; concurrency: number }, lane: Record<string, unknown>, source: string): LaneConfig {
+function unitEntry(lane: Record<string, unknown>, top: Limits, source: string): LaneConfig {
+  const fixed = ['config', 'specs'].find((key) => lane[key] !== undefined);
+  if (fixed) throw new ConfigError(`${source}: lanes.unit.${fixed} cannot be set; the unit lane uses the package's own config and import discovery`);
+  return unitLane(top, lane, source);
+}
+
+/** A lane after the unit lane; `earlier` are the lanes already read, which may not share its config. */
+function laneEntry(name: string, lane: Record<string, unknown>, earlier: readonly LaneConfig[], top: Limits, source: string): LaneConfig {
+  const config = optionalString(lane['config'], `lanes.${name}.config`, source);
+  if (!config) throw new ConfigError(`${source}: lanes.${name}.config is required (the runner config file name inside each package)`);
+  if (config.includes('/') || config.includes('\\')) throw new ConfigError(`${source}: lanes.${name}.config must be a file name, not a path`);
+  if (UNIT_TEST_CONFIGS.includes(config)) throw new ConfigError(`${source}: lanes.${name}.config ${JSON.stringify(config)} is the unit lane's config; a lane needs its own`);
+  const twin = earlier.find((l) => l.config === config);
+  if (twin) throw new ConfigError(`${source}: lanes.${name} and lanes.${twin.name} share the config ${JSON.stringify(config)}; each lane needs its own`);
+  const specs = specSources(lane['specs'], `lanes.${name}.specs`, source);
+  if (specs.length === 0) throw new ConfigError(`${source}: lanes.${name}.specs is required ("imports", { "map": [[regex, glob]] } or { "command": "..." })`);
+  return { name, config, specs, ...laneLimits(lane, `lanes.${name}`, top, source) };
+}
+
+function unitLane(top: Limits, lane: Record<string, unknown>, source: string): LaneConfig {
   return { name: UNIT_LANE, specs: ['imports'], ...laneLimits(lane, 'lanes.unit', top, source) };
 }
 
-function laneLimits(lane: Record<string, unknown>, prefix: string, top: { timeoutMs: number; concurrency: number }, source: string) {
+function laneLimits(lane: Record<string, unknown>, prefix: string, top: Limits, source: string) {
   const env = lane['envPerWorker'];
-  if (env !== undefined && (!env || typeof env !== 'object' || Array.isArray(env) || Object.values(env).some((v) => typeof v !== 'string'))) {
-    throw new ConfigError(`${source}: ${prefix}.envPerWorker must be an object of string values`);
-  }
+  if (env !== undefined && !isStringRecord(env)) throw new ConfigError(`${source}: ${prefix}.envPerWorker must be an object of string values`);
   const prepare = optionalString(lane['prepare'], `${prefix}.prepare`, source);
   return {
-    envPerWorker: { ...((env as Record<string, string> | undefined) ?? {}) },
+    envPerWorker: { ...(env ?? {}) },
     ...(prepare ? { prepare } : {}),
     timeoutMs: positiveInt(lane['timeoutMs'], `${prefix}.timeoutMs`, source) ?? top.timeoutMs,
     concurrency: positiveInt(lane['concurrency'], `${prefix}.concurrency`, source) ?? top.concurrency,
   };
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return isObject(value) && Object.values(value).every((v) => typeof v === 'string');
 }
 
 function specSources(raw: unknown, name: string, source: string): SpecSource[] {

@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { FsPackageLocator } from '../../src/adapters/fs/package-locator.ts';
 import { GitChangeSource } from '../../src/adapters/git/git-change-source.ts';

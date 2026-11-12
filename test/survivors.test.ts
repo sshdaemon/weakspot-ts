@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import type { Mutant } from '../src/mutation/types.ts';
 import { findingsOf, survivorsOf, uninstrumentedFiles, untestedFindings } from '../src/report/survivors.ts';
 

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { dryRunFailures, mutatePatterns } from '../src/adapters/stryker/stryker-engine.ts';
 import { VitestRunner, envSource, shimSource } from '../src/adapters/vitest/vitest-runner.ts';
 import { validate } from '../src/cli/config.ts';
@@ -101,6 +101,20 @@ test('lane config: unit first, config and specs required, limits default to the 
   assert.throws(() => validate({ lanes: { E2E: { config: 'x.config.ts', specs: 'imports' } } }, 'cfg'), /lane name "E2E"/);
   assert.throws(() => validate({ lanes: { e2e: { config: 'x.config.ts', specs: 'imports', envPerWorker: { A: 1 } } } }, 'cfg'), /envPerWorker must be an object of string values/);
   assert.throws(() => validate({ lanes: { e2e: { config: 'vitest.config.ts', specs: 'imports' } } }, 'cfg'), /is the unit lane's config/);
+  assert.deepEqual(validate({}, 'cfg').lanes.map((l) => l.name), ['unit'], 'no lanes key still gives the unit lane');
+  const lane = (specs: unknown) => ({ lanes: { e2e: { config: 'x.config.ts', specs } } });
+  for (const bad of [{ map: [['^a', 1]] }, { map: [['^a']] }, { map: ['^a'] }, { map: [['^a', 'g', 'h']] }]) {
+    assert.throws(() => validate(lane(bad), 'cfg'), /lanes\.e2e\.specs\.map entries are \[regex, glob\] pairs/);
+  }
+  for (const bad of [{ command: '  ' }, { command: 5 }, { map: 'x' }, 5, null, ['imports', 'other']]) {
+    assert.throws(() => validate(lane(bad), 'cfg'), /lanes\.e2e\.specs entries are "imports"/);
+  }
+  assert.deepEqual(validate(lane([{ map: [['^a', 'g']] }, { command: 'x' }]), 'cfg').lanes[1]!.specs, [{ map: [['^a', 'g']] }, { command: 'x' }]);
+  for (const bad of [[], null, 'e2e']) assert.throws(() => validate({ lanes: bad }, 'cfg'), /lanes must be an object keyed by lane name/);
+  for (const bad of [[], null]) assert.throws(() => validate({ lanes: { e2e: bad } }, 'cfg'), /lanes\.e2e must be an object/);
+  for (const name of ['1e2e', 'e2e_', '-e2e']) assert.throws(() => validate({ lanes: { [name]: { config: 'x.config.ts', specs: 'imports' } } }, 'cfg'), /must be lowercase letters, digits and dashes/);
+  assert.throws(() => validate({ lanes: { e2e: { config: 'x.config.ts', specs: 'imports', envPerWorker: { A: 'x', B: 1 } } } }, 'cfg'), /envPerWorker must be an object of string values/);
+  assert.deepEqual(validate({ lanes: { e2e: { config: 'x.config.ts', specs: 'imports', envPerWorker: { A: 'x' } } } }, 'cfg').lanes[1]!.envPerWorker, { A: 'x' });
   assert.throws(
     () => validate({ lanes: { a: { config: 'x.config.ts', specs: 'imports' }, b: { config: 'x.config.ts', specs: 'imports' } } }, 'cfg'),
     /lanes\.b and lanes\.a share the config "x\.config\.ts"/,

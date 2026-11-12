@@ -1,11 +1,26 @@
-import type { Report } from './types.ts';
+import type { Report, Survivor } from './types.ts';
 
 export function renderMarkdown(r: Report): string {
   const lines: string[] = [];
   lines.push(`# weakspot report`, ``, `Repo: ${r.repo}  `, `Change: ${r.change.kind} (${r.change.detail})  `, `Run: ${r.createdAt}  `, `Command: \`${r.command}\``, ``);
-  lines.push(`## Packages`, ``);
-  lines.push(`| Lane | Package | Files | Specs | Tests | Mutants | Killed | Survived | No coverage | Timeout | Errors | Ignored | Time |`);
-  lines.push(`| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |`);
+  lines.push(...packageTable(r));
+  lines.push(...section('Untested (no spec found, not mutated)', r.untested));
+  lines.push(...section('Mutated whole because a spec that imports them changed', r.viaChangedSpec));
+  lines.push(...section('No unit spec, checked by a later lane', r.viaFallback.map((f) => `${f.file}: ${f.lane} lane`)));
+  lines.push(...section('No test config found', r.noTestConfig));
+  lines.push(...section('Warnings', r.warnings));
+  lines.push(...section('Skipped by triage', r.dropped.map((d) => `${d.path}: ${d.reason}`)));
+  lines.push(...survivorList(r.survivors));
+  return lines.join('\n');
+}
+
+function packageTable(r: Report): string[] {
+  const lines = [
+    `## Packages`,
+    ``,
+    `| Lane | Package | Files | Specs | Tests | Mutants | Killed | Survived | No coverage | Timeout | Errors | Ignored | Time |`,
+    `| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |`,
+  ];
   for (const p of r.packages) {
     const c = p.counts;
     const total = Object.values(c).reduce((a, b) => a + b, 0);
@@ -14,39 +29,33 @@ export function renderMarkdown(r: Report): string {
       `| ${p.lane} | ${p.name} | ${p.targets.length} | ${p.specs.length} | ${p.testCount} | ${total} | ${c['Killed'] ?? 0} | ${c['Survived'] ?? 0} | ${c['NoCoverage'] ?? 0} | ${c['Timeout'] ?? 0} | ${errors} | ${c['Ignored'] ?? 0} | ${(p.durationMs / 1000).toFixed(1)}s |`,
     );
   }
-  if (r.untested.length > 0) {
-    lines.push(``, `## Untested (no spec found, not mutated)`, ``, ...r.untested.map((f) => `- ${f}`));
-  }
-  if (r.viaChangedSpec.length > 0) {
-    lines.push(``, `## Mutated whole because a spec that imports them changed`, ``, ...r.viaChangedSpec.map((f) => `- ${f}`));
-  }
-  if (r.viaFallback.length > 0) {
-    lines.push(``, `## No unit spec, checked by a later lane`, ``, ...r.viaFallback.map((f) => `- ${f.file}: ${f.lane} lane`));
-  }
-  if (r.noTestConfig.length > 0) {
-    lines.push(``, `## No test config found`, ``, ...r.noTestConfig.map((f) => `- ${f}`));
-  }
-  if (r.warnings.length > 0) {
-    lines.push(``, `## Warnings`, ``, ...r.warnings.map((w) => `- ${w}`));
-  }
-  if (r.dropped.length > 0) {
-    lines.push(``, `## Skipped by triage`, ``, ...r.dropped.map((d) => `- ${d.path}: ${d.reason}`));
-  }
-  lines.push(``, `## Survivors (${r.survivors.length})`, ``);
-  if (r.survivors.length === 0) lines.push(`None.`);
-  const byFile = new Map<string, typeof r.survivors>();
-  for (const s of r.survivors) {
+  return lines;
+}
+
+/** A titled bullet list, or nothing when there are no items. */
+function section(title: string, items: readonly string[]): string[] {
+  return items.length > 0 ? [``, `## ${title}`, ``, ...items.map((i) => `- ${i}`)] : [];
+}
+
+function survivorList(survivors: readonly Survivor[]): string[] {
+  const lines = [``, `## Survivors (${survivors.length})`, ``];
+  if (survivors.length === 0) lines.push(`None.`);
+  const byFile = new Map<string, Survivor[]>();
+  for (const s of survivors) {
     const key = s.mutant.lane === 'unit' ? s.mutant.file : `${s.mutant.file} (${s.mutant.lane} lane)`;
     byFile.set(key, [...(byFile.get(key) ?? []), s]);
   }
   for (const [file, list] of byFile) {
-    lines.push(`### ${file}`, ``);
-    for (const { mutant: m, kind } of list) {
-      const cov =
-        kind === 'static' ? 'static: every test ran against it, none fails' : kind === 'noCoverage' ? 'no test reaches this line' : `${m.coveredBy} covering test(s), none fails`;
-      lines.push(`- L${m.start.line}:${m.start.column} ${m.mutator} → \`${m.replacement.replace(/\s+/g, ' ').trim() || '(removed)'}\` (${cov})`);
-    }
-    lines.push(``);
+    lines.push(`### ${file}`, ``, ...list.map(survivorLine), ``);
   }
-  return lines.join('\n');
+  return lines;
+}
+
+function survivorLine({ mutant: m, kind }: Survivor): string {
+  const coverage: Record<Survivor['kind'], string> = {
+    static: 'static: every test ran against it, none fails',
+    noCoverage: 'no test reaches this line',
+    weakAssertion: `${m.coveredBy} covering test(s), none fails`,
+  };
+  return `- L${m.start.line}:${m.start.column} ${m.mutator} → \`${m.replacement.replace(/\s+/g, ' ').trim() || '(removed)'}\` (${coverage[kind]})`;
 }
