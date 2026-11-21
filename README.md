@@ -23,11 +23,29 @@ node bin/weakspot.js diff                       # everything changed against the
 node bin/weakspot.js diff --staged --base origin/main
 node bin/weakspot.js files src/utils/money.ts
 node bin/weakspot.js files src/a.ts:10-40 src/b.ts --specs src/a.spec.ts
+node bin/weakspot.js diff --changes changes.json   # the files and lines another tool already chose
 ```
 
 `diff` compares the merge base of HEAD and the base ref with the working tree (committed, staged, unstaged and untracked), or with the index (`--staged`), or with HEAD (`--committed`). The base is `--base`, else the repo config's `base`, else the remote's default branch (`origin/HEAD`); without any of those the command stops and says so. Deleted files are ignored and only added and modified lines are mutated; a spec that only lost lines (a deleted test) still counts as a changed spec. `--repo` must be the top of the git checkout.
 
-Other options: `--repo`, `--specs`, `--depth`, `--lanes`, `--escalate`, `--out`, `--timeout-ms`, `--concurrency`, `--exclude`, `--quiet`. `node bin/weakspot.js --help` lists them. Paths are relative to the cwd, or to `--repo` when it is given. A path that does not exist or lies outside the repo is an error, not an untested file.
+`diff --changes <file>` reads the files and lines from a change list instead of running git diff, so several tools can judge exactly the same lines:
+
+```json
+{
+  "repo": "/abs/path/to/checkout",
+  "base": "origin/main",
+  "head": "working-tree",
+  "files": [
+    { "path": "src/a.ts", "status": "modified", "ranges": [[12, 40], [88, 91]], "removedLines": true },
+    { "path": "src/b.ts", "status": "renamed", "oldPath": "src/old-b.ts", "ranges": "whole", "removedLines": false },
+    { "path": "src/a.test.ts", "status": "modified", "ranges": [], "removedLines": true }
+  ]
+}
+```
+
+Paths are repo-relative, ranges inclusive and on the new side, `status` is `added`, `modified` or `renamed`. `removedLines` says whether the diff removed any line of the file; a file that only lost lines (a deleted test) is listed with `"ranges": []`, and a file that neither gained nor lost a line (a pure move) is left out. Mutants run on the files on disk, so `head` must be `working-tree`, or the commit that is checked out with none of the listed files edited since; a listed file that does not exist is an error. The list does not quote removed lines, so a spec that lost any counts as changed; one marked `"removedLines": false` whose added lines are all imports is skipped, as with `diff`; without the field, a spec always counts as changed. `--repo`, when given, must be the list's `repo`; `--base`, `--staged` and `--committed` do not apply.
+
+Other options: `--repo`, `--changes`, `--specs`, `--depth`, `--lanes`, `--escalate`, `--out`, `--timeout-ms`, `--concurrency`, `--exclude`, `--quiet`. `node bin/weakspot.js --help` lists them. Paths are relative to the cwd, or to `--repo` when it is given. A path that does not exist or lies outside the repo is an error, not an untested file.
 
 Needs Node 22.18 or later (the CLI runs the TypeScript sources directly) and a project on Vitest 5, the major this tool pins, configured through `vitest.config.*` or `vite.config.*`. A project on another Vitest major needs the pin in `package.json` changed to match, since Stryker's runner loads the tool's copy while the specs import the project's.
 
@@ -92,6 +110,33 @@ If every mutant of a file survives with no covering test, the run fails instead 
 
 The words used in code and reports are defined in [docs/glossary.md](docs/glossary.md).
 
+## Report contract
+
+What a consumer (a review step, a script, an agent) can rely on. New fields may be added at any time; a field removed, renamed or changing meaning bumps `schemaVersion`.
+
+**Exit codes.** 0: the run completed with no findings. 1: it completed with findings in `report.json`. 2: the command line, the repo config, git, the change list or the accepted store was wrong, and nothing ran. 3: the run could not complete (tests fail before mutation, a prepare or spec command failed, the engine failed); the message names the log. 130: interrupted. Read 0 and 1 as a finished run.
+
+**`--out` layout** (default `~/.weakspot/runs/<repo>/<time>/`):
+
+- `report.json`: the full report, written once at the end.
+- `report.md`: the same for a person. It is rewritten as each package run finishes, with an "In progress" line under the title, so it can be read while a slow lane runs; the final version has no such line. A run that fails after a package run finished leaves it with a "Stopped" line instead. Both reports from an earlier run into the same folder are removed when a run starts, so a failure never leaves an old report looking current.
+- `engine/<package>-<hash>-<lane>/`: one folder per package and lane: `stryker.config.json`, `stryker-report.json`, `stryker.log`, `vitest.shim.mts`, `weakspot-env.mjs`. `engine-escalated/` holds the retries in a later lane, in the same shape.
+
+**`report.json`** carries `schemaVersion` (1), the change, the packages run per lane, what was skipped and why, untested files, the survivors (with noise class, acceptance and escalation), `killedLater`, `accepted`, and `findings`: what a consumer acts on. Each finding has:
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Stable across runs: `<file>#<mutator>#<hash>` for a survivor, `<file>#untested`. What `weakspot accept` takes. |
+| `kind` | `weakAssertion`, `noCoverage`, `static` or `untested`. |
+| `file` | Repo-relative path. |
+| `where` | `file:line:column`, or the file for an untested file. |
+| `claim` | One sentence to act on. |
+| `evidence` | The mutator, lane and status, and how a retry in a later lane ended. |
+| `severity`, `category` | `medium` and `tests` today. |
+| `mutant` | Survivors only: `lane`, `mutator`, `start` and `end` (1-based, end exclusive), `original`, `replacement`, `coveredBy`, and `escalated` when a later lane ran it. |
+
+Noise and accepted survivors are in `survivors` but never in `findings`.
+
 ## Develop
 
 ```bash
@@ -105,4 +150,4 @@ npm run test:contract # runs the fixture project through Vitest and Stryker (sec
 
 ## Status
 
-Phases 1 to 4: the `files`, `diff` and `accept` commands, import-graph spec discovery with a parse cache, lanes with the fallback rule and escalation, noise classes, accepted survivors, the Vitest adapter and the Stryker engine. Coming: a stable findings contract and exit codes, model-written mutants, PR input, a coverage map, a Jest adapter.
+Phases 1 to 5: the `files`, `diff` (also from a change list) and `accept` commands, import-graph spec discovery with a parse cache, lanes with the fallback rule and escalation, noise classes, accepted survivors, a versioned report contract with exit codes and a progressive report, the Vitest adapter and the Stryker engine. Coming: model-written mutants, PR input, a coverage map, a Jest adapter.

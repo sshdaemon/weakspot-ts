@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { escapeGlob } from '../../change/glob.ts';
@@ -38,6 +38,14 @@ export class CancelledError extends Error {
   }
 }
 
+/** Stryker stopped without a report for a reason other than failing tests. */
+export class EngineFailedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'EngineFailedError';
+  }
+}
+
 export class TestsFailBeforeMutationError extends Error {
   constructor(pkgName: string, detail: string) {
     super(`tests fail before mutation in ${pkgName}: ${detail}`);
@@ -70,6 +78,8 @@ export class StrykerEngine implements MutationEngine {
       path.join(dir, 'vitest.shim.mts'),
     );
     const reportPath = path.join(dir, 'stryker-report.json');
+    // The engine dir is the same on every run into one --out; a stale report would read as this run's.
+    rmSync(reportPath, { force: true });
     const configPath = path.join(dir, 'stryker.config.json');
     const logPath = path.join(dir, 'stryker.log');
     const config = {
@@ -126,7 +136,7 @@ export class StrykerEngine implements MutationEngine {
         throw new TestsFailBeforeMutationError(plan.pkg.name, `${failing || 'see the log'} (${logPath})`);
       }
       const tail = logText.split('\n').filter((l) => /ERROR|Error|WARN/.test(l)).slice(-6).join('\n');
-      throw new Error(`stryker exited with ${code} for ${plan.pkg.name} and wrote no report. Log: ${logPath}\n${tail}`);
+      throw new EngineFailedError(`stryker exited with ${code} for ${plan.pkg.name} and wrote no report. Log: ${logPath}\n${tail}`);
     }
     const report = JSON.parse(readFileSync(reportPath, 'utf8')) as StrykerReport;
     const mutants: Mutant[] = [];

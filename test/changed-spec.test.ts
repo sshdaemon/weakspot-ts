@@ -7,7 +7,9 @@ import type { ChangedFile, Package, SpecSet, TriageDecision } from '../src/chang
 
 const repoRoot = '/repo';
 const pkg: Package = { dir: '/repo/app', name: 'app', testConfig: '/repo/app/vitest.config.ts' };
-const changed = (path: string, ranges: ChangedFile['ranges'] = 'whole'): ChangedFile => ({ path, status: 'modified', ranges });
+/** `removed: null` builds a file whose removals are unknown. */
+const changed = (path: string, ranges: ChangedFile['ranges'] = 'whole', removed: readonly string[] | null = []): ChangedFile =>
+  removed === null ? { path, status: 'modified', ranges } : { path, status: 'modified', ranges, removed };
 const kept = (f: ChangedFile): TriageDecision => ({ file: f, kept: true, fileClass: 'logic', reason: '' });
 const set = (file: string, ...specs: string[]): SpecSet => ({ file, specs, how: specs.length > 0 ? 'imports' : 'none' });
 
@@ -90,4 +92,15 @@ test('a removed test makes a spec changed, even when the only added line is an i
   assert.deepEqual(droppedImport.importOnly, ['app/src/a.test.ts'], 'removing an import alone is still import-only');
   const onlyRemoved = run([{ ...changed('app/src/a.test.ts', []), removed: ["test('b', () => {});"] }], [], [], imports, lines);
   assert.deepEqual(onlyRemoved.viaChangedSpec, ['app/src/a.ts'], 'a spec change that only deletes a test counts');
+});
+
+test('removals unknown (named files, an old change list) or unquoted (a change list that lost lines): no spec is import-only', () => {
+  const imports = { 'app/src/a.test.ts': ['/repo/app/src/a.ts'] };
+  const lines = { 'app/src/a.test.ts': [1] };
+  const unknown = run([changed('app/src/a.test.ts', [{ start: 1, end: 1 }], null)], [], [], imports, lines);
+  assert.deepEqual([unknown.importOnly, unknown.viaChangedSpec], [[], ['app/src/a.ts']]);
+  const unquoted = run([{ ...changed('app/src/a.test.ts', [{ start: 1, end: 1 }], null), removedUnquoted: true }], [], [], imports, lines);
+  assert.deepEqual([unquoted.importOnly, unquoted.viaChangedSpec], [[], ['app/src/a.ts']]);
+  const knownNone = run([changed('app/src/a.test.ts', [{ start: 1, end: 1 }], [])], [], [], imports, lines);
+  assert.deepEqual(knownNone.importOnly, ['app/src/a.test.ts'], 'a list that says nothing was removed keeps the shortcut');
 });

@@ -16,6 +16,7 @@ Commands
 Options
   --repo <dir>        repo root; relative paths are resolved against it (default: found from the cwd or the first file)
   --base <ref>        diff: ref to compare with (default: the repo config's base, else the remote's default branch)
+  --changes <file>    diff: read the changed files and lines from a change list file instead of git diff
   --staged            diff: only committed and staged changes
   --committed         diff: only committed changes
   --specs <a,b>       spec files to run in the unit lane, instead of import discovery (repeatable)
@@ -34,6 +35,7 @@ Options
 export const OPTIONS = {
   repo: { type: 'string' },
   base: { type: 'string' },
+  changes: { type: 'string' },
   staged: { type: 'boolean' },
   committed: { type: 'boolean' },
   specs: { type: 'string', multiple: true },
@@ -66,7 +68,10 @@ export function checkUsage(command: string, rest: readonly string[], values: Fla
   if (command === 'files' && rest.length === 0) throw new UsageError('files: give at least one path');
   if (command === 'diff' && rest.length > 0) throw new UsageError(`diff takes no paths; use --repo to point at a checkout`);
   if (values.staged && values.committed) throw new UsageError('--staged and --committed exclude each other');
-  if (command === 'files' && (values.base || values.staged || values.committed)) throw new UsageError('--base, --staged and --committed apply to diff only');
+  if (command === 'files' && (values.base || values.staged || values.committed || values.changes)) throw new UsageError('--base, --staged, --committed and --changes apply to diff only');
+  if (values.changes !== undefined && (values.base || values.staged || values.committed)) {
+    throw new UsageError('--changes names the base and lines itself; drop --base, --staged and --committed');
+  }
 }
 
 /** The repo config with command-line flags applied; a limit flag applies to every lane. */

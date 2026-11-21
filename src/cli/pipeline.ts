@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { runPrepare } from '../adapters/shell/run-command.ts';
 import { isInside, repoRelative } from '../change/paths.ts';
@@ -17,10 +17,29 @@ import type { MutantSite, SourceInspector } from '../ports/source-inspector.ts';
 import type { SuppressionStore } from '../ports/suppression-store.ts';
 import { survivorId, untestedId, type AcceptedEntry } from '../report/suppressions.ts';
 import type { TestRunner } from '../ports/test-runner.ts';
-import { renderMarkdown } from '../report/render.ts';
+import { renderMarkdown, type Snapshot } from '../report/render.ts';
 import { findingsOf, survivorsOf, uninstrumentedFiles, untestedFindings } from '../report/survivors.ts';
-import type { AcceptedMatch, ChangeSummary, KilledLater, NoiseClass, PackageSummary, Report, Survivor } from '../report/types.ts';
+import { REPORT_SCHEMA_VERSION, type AcceptedMatch, type ChangeSummary, type KilledLater, type NoiseClass, type PackageSummary, type Report, type Survivor } from '../report/types.ts';
 import { UNIT_LANE, type LaneConfig, type ToolConfig } from './config.ts';
+
+/** The specs never ran the instrumented copy of a file: a sandbox or alias problem, not weak tests. */
+export class UninstrumentedError extends Error {
+  constructor(files: readonly string[]) {
+    super(
+      `the specs never loaded the instrumented copy of: ${files.join(', ')}. ` +
+        `Every mutant survived with no covering test, which points at an import or alias that resolves outside the sandbox.`,
+    );
+    this.name = 'UninstrumentedError';
+  }
+}
+
+/** The run was stopped by a signal. */
+export class InterruptedError extends Error {
+  constructor() {
+    super('interrupted');
+    this.name = 'InterruptedError';
+  }
+}
 
 export class UsageError extends Error {
   constructor(message: string) {
@@ -66,6 +85,8 @@ export interface PipelineInput {
 export async function runPipeline(input: PipelineInput): Promise<{ report: Report; outDir: string }> {
   const { repoRoot } = input;
   if (isInside(repoRoot, input.out)) throw new UsageError(`--out ${input.out} is inside the repo ${repoRoot}; reports and the engine's sandbox must live outside it`);
+  // A reused --out must not show the last run's report, whatever fails in this one.
+  for (const name of ['report.json', 'report.md']) rmSync(path.join(input.out, name), { force: true });
 
   const decisions = triage(input.changed, input.config.skip, input.config);
   const kept: TriageDecision[] = decisions.filter((d) => d.kept);
@@ -81,25 +102,39 @@ export async function runPipeline(input: PipelineInput): Promise<{ report: Repor
   runPrepares(plans, input.log, prepared);
 
   mkdirSync(input.out, { recursive: true });
-  const results = await runAll(plans, input, 'engine');
-  const sites = inspect(input, results.flatMap((r) => r.mutants));
-  const mutants: Mutant[] = results.flatMap((r) => r.mutants.map((m) => withScope(m, sites.get(m.id))));
-  const noise = noiseOf(input, sites);
-  const acceptedById = new Map((input.suppressions?.store.list(input.suppressions.repoKey) ?? []).map((e) => [e.id, e] as const));
-  const hidden = (m: Mutant): boolean => noise.has(m.id) || acceptedById.has(survivorId(m));
-  const escalation = await escalate(input, mutants.filter((m) => !hidden(m)), lookups, selection, prepared);
-  // A unit spec can import a file and call none of it; a later lane that reaches it shows the sandbox is fine.
-  const broken = uninstrumentedFiles(mutants).filter((key) => !escalation.mutants.some((m) => m.file === key && (m.coveredBy > 0 || m.status === 'Killed' || m.status === 'Timeout')));
-  if (broken.length > 0) {
-    throw new Error(
-      `the specs never loaded the instrumented copy of: ${broken.join(', ')}. ` +
-        `Every mutant survived with no covering test, which points at an import or alias that resolves outside the sandbox.`,
-    );
+  const ctx: RunContext = { decisions, lanes, rule, acceptedById: acceptedEntries(input) };
+  const first: Done[] = [];
+  const retried: Done[] = [];
+  let retryTotal = 0;
+  const progress = (label: string) => writeProgress(input, () => assemble(input, ctx, first, retried).report, { inProgress: label });
+  try {
+    return await runEngines();
+  } catch (err) {
+    // A snapshot already on disk must not read as a run still going, or as a finished one.
+    if (first.length > 0) writeProgress(input, () => assemble(input, ctx, first, retried).report, { stopped: err instanceof Error ? err.message : String(err) });
+    throw err;
   }
-  const report = buildReport(input, { decisions, lanes, viaChangedSpec: rule.viaChangedSpec, importOnly: rule.importOnly, plans, results, mutants, escalation, noise, acceptedById });
-  writeFileSync(path.join(input.out, 'report.json'), JSON.stringify(report, null, 2));
-  writeFileSync(path.join(input.out, 'report.md'), renderMarkdown(report));
-  return { report, outDir: input.out };
+
+  async function runEngines(): Promise<{ report: Report; outDir: string }> {
+    await runAll(plans, input, 'engine', (done) => {
+      first.push(done);
+      progress(`${first.length} of ${plans.length} package run(s) done`);
+    });
+    const firstPass = assemble(input, ctx, first, []);
+    const { mutants, noise } = firstPass;
+    const hidden = (m: Mutant): boolean => noise.has(m.id) || ctx.acceptedById.has(survivorId(m));
+    const escalation = await escalate(input, mutants.filter((m) => !hidden(m)), lookups, selection, prepared, (count) => (retryTotal = count), (done) => {
+      retried.push(done);
+      progress(`first pass done; ${retried.length} of ${retryTotal} retry run(s) in a later lane done`);
+    });
+    // A unit spec can import a file and call none of it; a later lane that reaches it shows the sandbox is fine.
+    const broken = uninstrumentedFiles(mutants).filter((key) => !escalation.mutants.some((m) => m.file === key && (m.coveredBy > 0 || m.status === 'Killed' || m.status === 'Timeout')));
+    if (broken.length > 0) throw new UninstrumentedError(broken);
+    const { report } = assemble(input, ctx, first, retried);
+    writeFileSync(path.join(input.out, 'report.json'), JSON.stringify(report, null, 2));
+    writeFileSync(path.join(input.out, 'report.md'), renderMarkdown(report));
+    return { report, outDir: input.out };
+  }
 }
 
 interface PackageResolvers {
@@ -184,6 +219,59 @@ function laneLookups(input: PipelineInput, rule: ChangedSpecOutcome, lanePackage
   ];
 }
 
+/** What the run knows before any engine runs. */
+interface RunContext {
+  readonly decisions: readonly TriageDecision[];
+  readonly lanes: LaneOutcome;
+  readonly rule: ChangedSpecOutcome;
+  readonly acceptedById: ReadonlyMap<string, AcceptedEntry>;
+}
+
+/** One finished engine run, with the index of its plan so reports keep plan order whatever finished first. */
+interface Done {
+  readonly index: number;
+  readonly plan: PackagePlan;
+  readonly result: EngineRunResult;
+}
+
+function acceptedEntries(input: PipelineInput): Map<string, AcceptedEntry> {
+  return new Map((input.suppressions?.store.list(input.suppressions.repoKey) ?? []).map((e) => [e.id, e] as const));
+}
+
+/** The report from the runs finished so far: the final one, or a progress snapshot. */
+function assemble(input: PipelineInput, ctx: RunContext, firstDone: readonly Done[], retryDone: readonly Done[]): { report: Report; mutants: Mutant[]; noise: Map<string, NoiseClass> } {
+  const inOrder = (list: readonly Done[]) => list.toSorted((a, b) => a.index - b.index);
+  const first = inOrder(firstDone);
+  const retry = inOrder(retryDone);
+  const raw = first.flatMap((d) => d.result.mutants);
+  const sites = inspect(input, raw);
+  const mutants = raw.map((m) => withScope(m, sites.get(m.id)));
+  const noise = noiseOf(input, sites);
+  const escalation: Escalation = { plans: retry.map((d) => d.plan), results: retry.map((d) => d.result), mutants: retry.flatMap((d) => d.result.mutants) };
+  const report = buildReport(input, {
+    decisions: ctx.decisions,
+    lanes: ctx.lanes,
+    viaChangedSpec: ctx.rule.viaChangedSpec,
+    importOnly: ctx.rule.importOnly,
+    plans: first.map((d) => d.plan),
+    results: first.map((d) => d.result),
+    mutants,
+    escalation,
+    noise,
+    acceptedById: ctx.acceptedById,
+  });
+  return { report, mutants, noise };
+}
+
+/** Rewrites report.md while runs are still going; a failure here is logged, never fatal. */
+function writeProgress(input: PipelineInput, snapshot: () => Report, state: Snapshot): void {
+  try {
+    writeFileSync(path.join(input.out, 'report.md'), renderMarkdown(snapshot(), state));
+  } catch (err) {
+    input.log(`could not write the progress report: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 /** Survivors' scope and noise class, read once per file. */
 function inspect(input: PipelineInput, mutants: readonly Mutant[]): Map<string, MutantSite> {
   const out = new Map<string, MutantSite>();
@@ -251,7 +339,15 @@ interface Escalation {
  * lane with specs for the file. Only in fallback: with `--lanes` every lane already ran every file.
  * Files the changed-spec rule added never reach a later lane, as in the first batch.
  */
-async function escalate(input: PipelineInput, first: readonly Mutant[], lookups: readonly LaneLookup[], selection: LaneSelection, prepared: Set<string>): Promise<Escalation> {
+async function escalate(
+  input: PipelineInput,
+  first: readonly Mutant[],
+  lookups: readonly LaneLookup[],
+  selection: LaneSelection,
+  prepared: Set<string>,
+  onPlanned: (count: number) => void,
+  onDone: (done: Done) => void,
+): Promise<Escalation> {
   const none: Escalation = { plans: [], results: [], mutants: [] };
   if (input.config.escalate === 'untested' || selection !== 'fallback' || lookups.length < 2) return none;
   const targets = escalationTargets(first.filter((m) => m.status === 'Survived' || m.status === 'NoCoverage'), input.config.escalate);
@@ -271,8 +367,9 @@ async function escalate(input: PipelineInput, first: readonly Mutant[], lookups:
     const count = p.targets.reduce((n, t) => n + (t.spans?.length ?? 0), 0);
     input.log(`${p.lane.name} ${p.pkg.name}: retrying ${count} unit-lane survivor(s) in ${p.targets.length} file(s), ${p.specs.length} spec(s)`);
   }
+  onPlanned(plans.length);
   runPrepares(plans, input.log, prepared);
-  const results = await runAll(plans, input, 'engine-escalated');
+  const results = await runAll(plans, input, 'engine-escalated', onDone);
   return { plans, results, mutants: results.flatMap((r) => r.mutants) };
 }
 
@@ -337,6 +434,7 @@ function buildReport(input: PipelineInput, run: RunOutcome): Report {
     ...run.escalation.results.map((r, i) => summary(r, run.escalation.plans[i]!, true)),
   ];
   return {
+    schemaVersion: REPORT_SCHEMA_VERSION,
     tool: 'weakspot-ts',
     version: input.version,
     createdAt: new Date().toISOString(),
@@ -373,7 +471,7 @@ export function resolveInsideRepo(repoRoot: string, baseDir: string, given: read
  * Runs every package in parallel; the first failure aborts the others and is the one rethrown.
  * `workDir` is a folder under `out`; escalation uses its own, so a lane's first run keeps its artifacts.
  */
-async function runAll(plans: readonly PackagePlan[], input: PipelineInput, workDir: string): Promise<EngineRunResult[]> {
+async function runAll(plans: readonly PackagePlan[], input: PipelineInput, workDir: string, onDone: (done: Done) => void): Promise<EngineRunResult[]> {
   const controller = new AbortController();
   input.signal?.addEventListener('abort', () => controller.abort(), { once: true });
   let cause: unknown;
@@ -390,6 +488,10 @@ async function runAll(plans: readonly PackagePlan[], input: PipelineInput, workD
           log: input.log,
           signal: controller.signal,
         })
+        .then((result) => {
+          if (!controller.signal.aborted) onDone({ index: i, plan, result });
+          return result;
+        })
         .catch((err: unknown) => {
           if (!controller.signal.aborted) cause = err;
           controller.abort();
@@ -397,7 +499,7 @@ async function runAll(plans: readonly PackagePlan[], input: PipelineInput, workD
         }),
     ),
   );
-  if (input.signal?.aborted) throw new Error('interrupted');
+  if (input.signal?.aborted) throw new InterruptedError();
   if (settled.some((s) => s.status === 'rejected')) throw cause ?? (settled.find((s) => s.status === 'rejected') as PromiseRejectedResult).reason;
   return settled.map((s) => (s as PromiseFulfilledResult<EngineRunResult>).value);
 }

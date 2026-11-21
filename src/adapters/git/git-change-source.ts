@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import { parseUnifiedDiff } from '../../change/hunks.ts';
+import { WORKING_TREE } from '../../change/change-list.ts';
 import type { ChangedFile } from '../../change/types.ts';
 import type { ChangeQuery, ChangeSource } from '../../ports/change-source.ts';
 
@@ -14,8 +15,7 @@ export class GitError extends Error {
 /** Local git: the diff from the merge base with HEAD to the chosen scope, plus untracked files. */
 export class GitChangeSource implements ChangeSource {
   changes(q: ChangeQuery): ChangedFile[] {
-    const top = realpathSync(this.git(q.repoRoot, ['rev-parse', '--show-toplevel']).trim());
-    if (top !== realpathSync(q.repoRoot)) throw new GitError(`${q.repoRoot} is not the top of its git checkout (${top}); git paths are relative to the top, so --repo must point there`);
+    this.checkTop(q.repoRoot);
     const mergeBase = this.git(q.repoRoot, ['merge-base', q.base, 'HEAD'], `no merge base between ${q.base} and HEAD; is ${q.base} fetched?`).trim();
     // Pinned output format: no quoting of non-ASCII paths, fixed a/ b/ prefixes whatever the user's diff
     // config, no external diff driver, no context between hunks (diff.interHunkContext would merge
@@ -40,9 +40,23 @@ export class GitChangeSource implements ChangeSource {
       const untracked = this.git(q.repoRoot, ['ls-files', '-z', '--others', '--exclude-standard'])
         .split('\0')
         .filter(Boolean);
-      for (const path of untracked) files.push({ path, status: 'added', ranges: 'whole' });
+      for (const path of untracked) files.push({ path, status: 'added', ranges: 'whole', removed: [] });
     }
     return files;
+  }
+
+  verifyHead(repoRoot: string, head: string, paths: readonly string[]): void {
+    this.checkTop(repoRoot);
+    if (head === WORKING_TREE) return;
+    const wanted = this.git(repoRoot, ['rev-parse', '--verify', '--quiet', `${head}^{commit}`], `the change list's head ${head} is not a commit in ${repoRoot}`).trim();
+    const checkedOut = this.git(repoRoot, ['rev-parse', 'HEAD']).trim();
+    if (wanted !== checkedOut) throw new GitError(`the change list was read at ${head.slice(0, 12)}, but ${checkedOut.slice(0, 12)} is checked out; mutants run on the files on disk, so check out ${head.slice(0, 12)} or write the list with head "${WORKING_TREE}"`);
+    if (paths.length === 0) return;
+    const dirty = this.git(repoRoot, ['--literal-pathspecs', '-c', 'core.quotePath=false', 'diff', '--name-only', 'HEAD', '--', ...paths])
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (dirty.length > 0) throw new GitError(`the change list's ranges describe ${head.slice(0, 12)}, but these files have uncommitted edits: ${dirty.join(', ')}`);
   }
 
   defaultBase(repoRoot: string): string | undefined {
@@ -53,6 +67,11 @@ export class GitChangeSource implements ChangeSource {
       // no origin/HEAD
     }
     return undefined;
+  }
+
+  private checkTop(repoRoot: string): void {
+    const top = realpathSync(this.git(repoRoot, ['rev-parse', '--show-toplevel']).trim());
+    if (top !== realpathSync(repoRoot)) throw new GitError(`${repoRoot} is not the top of its git checkout (${top}); git paths are relative to the top, so --repo must point there`);
   }
 
   private git(cwd: string, args: string[], failure?: string): string {
