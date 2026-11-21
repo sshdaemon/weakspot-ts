@@ -12,8 +12,14 @@ export interface ChangedFile {
   readonly path: string;
   readonly status: FileStatus;
   readonly ranges: readonly LineRange[] | 'whole';
-  /** The text of each hunk's removed lines, one entry per hunk that removed any; from a diff only. */
+  /**
+   * The text of each hunk's removed lines, one entry per hunk that removed any; `[]` when the change is
+   * known to remove nothing. Undefined when unknown (named files, a change list without removedLines,
+   * or one that removed lines it does not quote), and then no spec counts as import-only.
+   */
   readonly removed?: readonly string[];
+  /** Set when lines were removed but their text is not known (a change list); such a spec is always a change. */
+  readonly removedUnquoted?: true;
 }
 
 export type FileClass = 'logic' | 'component';

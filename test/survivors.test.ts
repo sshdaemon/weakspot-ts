@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import type { Mutant } from '../src/mutation/types.ts';
+import { REPORT_SCHEMA_VERSION } from '../src/report/types.ts';
 import { findingsOf, survivorsOf, uninstrumentedFiles, untestedFindings } from '../src/report/survivors.ts';
 import { survivorId } from '../src/report/suppressions.ts';
 
@@ -58,4 +59,17 @@ test('noise: survivors keep their label and stay out of the findings', () => {
   const out = survivorsOf(ms, (m) => (m.id === 'b' ? 'logging' : undefined));
   assert.deepEqual(out.map((s) => s.noise), [undefined, 'logging']);
   assert.deepEqual(findingsOf(out).map((f) => f.id), [survivorId(ms[0]!)]);
+});
+
+test('the finding contract: the exact keys of a survivor and an untested finding, so a change to the shape is a schema change', () => {
+  const [survivor] = findingsOf(survivorsOf([mutant({ id: 'a', coveredBy: 2 })]));
+  assert.deepEqual(Object.keys(survivor!).toSorted(), ['category', 'claim', 'evidence', 'file', 'id', 'kind', 'mutant', 'severity', 'where']);
+  assert.deepEqual(Object.keys(survivor!.mutant!).toSorted(), ['coveredBy', 'end', 'lane', 'mutator', 'original', 'replacement', 'start']);
+  assert.deepEqual(survivor!.mutant, { lane: 'unit', mutator: 'ConditionalExpression', start: { line: 2, column: 5 }, end: { line: 2, column: 9 }, original: 'x', replacement: 'true', coveredBy: 2 });
+  assert.equal(survivor!.file, 'src/a.ts');
+  const escalated = findingsOf([{ mutant: mutant({}), kind: 'noCoverage', escalated: { lane: 'e2e', status: 'Survived', coveredBy: 4 } }])[0]!;
+  assert.deepEqual(escalated.mutant!.escalated, { lane: 'e2e', status: 'Survived', coveredBy: 4 });
+  const [untested] = untestedFindings(new Map([['src/b.ts', 'whole']]));
+  assert.deepEqual(Object.keys(untested!).toSorted(), ['category', 'claim', 'evidence', 'file', 'id', 'kind', 'severity', 'where']);
+  assert.equal(REPORT_SCHEMA_VERSION, 1);
 });

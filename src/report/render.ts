@@ -1,10 +1,14 @@
 import { laterLane } from './survivors.ts';
 import type { Report, Survivor } from './types.ts';
 
-export function renderMarkdown(r: Report): string {
+/** A snapshot's state: still running, or stopped by an error before the end. */
+export type Snapshot = { readonly inProgress: string } | { readonly stopped: string };
+
+export function renderMarkdown(r: Report, snapshot?: Snapshot): string {
   return [
     `# weakspot report`,
     ``,
+    ...snapshotLines(snapshot),
     `Repo: ${r.repo}  `,
     `Change: ${r.change.kind} (${r.change.detail})  `,
     `Run: ${r.createdAt}  `,
@@ -79,4 +83,10 @@ function survivorLine({ mutant: m, kind, escalated }: Survivor): string {
   };
   const later = escalated ? `; ${laterLane(escalated)}` : '';
   return `- L${m.start.line}:${m.start.column} ${m.mutator} → \`${m.replacement.replaceAll(/\s+/g, ' ').trim() || '(removed)'}\` (${coverage[kind]}${later})`;
+}
+
+function snapshotLines(snapshot: Snapshot | undefined): string[] {
+  if (!snapshot) return [];
+  if ('inProgress' in snapshot) return [`**In progress:** ${snapshot.inProgress}. This page is rewritten as runs finish; report.json is written at the end.`, ``];
+  return [`**Stopped:** ${snapshot.stopped.split('\n')[0]} The run did not finish: what is below is incomplete, and there is no report.json.`, ``];
 }

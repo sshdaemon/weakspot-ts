@@ -11,7 +11,7 @@ test('checkUsage refuses unknown commands and flags that do not fit the command'
   assert.throws(() => checkUsage('diff', ['a.ts'], {}), /diff takes no paths/);
   assert.throws(() => checkUsage('diff', [], { staged: true, committed: true }), /--staged and --committed exclude each other/);
   for (const flag of [{ base: 'main' }, { staged: true }, { committed: true }] as Flags[]) {
-    assert.throws(() => checkUsage('files', ['a.ts'], flag), /--base, --staged and --committed apply to diff only/);
+    assert.throws(() => checkUsage('files', ['a.ts'], flag), /--base, --staged, --committed and --changes apply to diff only/);
   }
   assert.doesNotThrow(() => checkUsage('files', ['a.ts'], {}));
   assert.doesNotThrow(() => checkUsage('diff', [], { staged: true, base: 'main' }));
@@ -66,4 +66,12 @@ test('--escalate other than untested is refused with --lanes', () => {
   assert.doesNotThrow(() => checkUsage('diff', [], { lanes: 'all', escalate: 'untested' }));
   assert.doesNotThrow(() => checkUsage('diff', [], { escalate: 'survivors' }));
   assert.doesNotThrow(() => checkUsage('diff', [], { lanes: 'all' }));
+});
+
+test('--changes: diff only, and not with the flags that pick the lines from git', () => {
+  assert.doesNotThrow(() => checkUsage('diff', [], { changes: 'c.json' }));
+  assert.throws(() => checkUsage('files', ['a.ts'], { changes: 'c.json' }), /apply to diff only/);
+  for (const flag of [{ base: 'main' }, { staged: true }, { committed: true }] as Flags[]) {
+    assert.throws(() => checkUsage('diff', [], { changes: 'c.json', ...flag }), /--changes names the base and lines itself/);
+  }
 });

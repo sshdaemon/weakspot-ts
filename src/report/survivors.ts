@@ -36,6 +36,7 @@ export function untestedFindings(files: ReadonlyMap<string, readonly LineRange[]
       severity: 'medium',
       category: 'tests',
       kind: 'untested',
+      file,
       where: file,
       claim: `No spec exercises ${file}; ${scope} unchecked by tests.`,
       evidence,
@@ -54,8 +55,19 @@ export function findingsOf(survivors: readonly Survivor[]): Finding[] {
     severity: 'medium',
     category: 'tests',
     kind,
+    file: m.file,
     where: `${m.file}:${m.start.line}:${m.start.column}`,
     claim: claimOf(m, kind),
+    mutant: {
+      lane: m.lane,
+      mutator: m.mutator,
+      start: m.start,
+      end: m.end,
+      original: m.original,
+      replacement: m.replacement,
+      coveredBy: m.coveredBy,
+      ...(escalated ? { escalated } : {}),
+    },
     evidence: `${m.mutator} mutant in the ${m.lane} lane, status ${m.status}${m.statusReason ? `: ${m.statusReason}` : ''}${escalated ? `; ${laterLane(escalated)}` : ''}`,
   }));
 }

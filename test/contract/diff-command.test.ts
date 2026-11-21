@@ -11,6 +11,7 @@ import { ImportSpecFinder } from '../../src/adapters/ts/import-spec-finder.ts';
 import { VitestRunner } from '../../src/adapters/vitest/vitest-runner.ts';
 import { DEFAULTS } from '../../src/cli/config.ts';
 import { diffCommand } from '../../src/cli/diff-command.ts';
+import { parseChangeList } from '../../src/change/change-list.ts';
 
 const fixtures = path.resolve(import.meta.dirname, '../../fixtures');
 const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
@@ -65,6 +66,59 @@ test('diff command: mutates only the changed lines, mutates a source whole when 
     assert.ok(priceMutants.length > 0 && priceMutants.every((m) => m.start.line === 4), JSON.stringify(priceMutants.map((m) => m.start.line)));
     // format.ts: mutated whole because format.test.ts changed
     assert.ok(report.mutants.some((m) => m.file === 'src/format.ts'));
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(out, { recursive: true, force: true });
+  }
+});
+
+test('diff command with a change list: mutates exactly the listed lines, and a spec in the list always counts as changed', { timeout: 180_000 }, async () => {
+  const repo = mkdtempSync(path.join(os.tmpdir(), 'weakspot-changes-'));
+  const out = mkdtempSync(path.join(os.tmpdir(), 'weakspot-changes-out-'));
+  try {
+    cpSync(path.join(fixtures, 'vitest-basic'), repo, { recursive: true, filter: (src) => !src.endsWith('node_modules') });
+    symlinkSync(path.resolve(fixtures, '..', 'node_modules'), path.join(repo, 'node_modules'));
+    git(repo, 'init', '-q', '-b', 'main');
+    git(repo, 'add', '.');
+    git(repo, 'commit', '-q', '-m', 'base');
+    const list = parseChangeList(
+      {
+        repo,
+        base: 'main',
+        head: 'working-tree',
+        files: [
+          { path: 'src/price.ts', status: 'modified', ranges: [[2, 2]] },
+          { path: 'src/format.test.ts', status: 'modified', ranges: [[1, 1]] },
+        ],
+      },
+      'changes.json',
+    );
+    const imports = new ImportSpecFinder(1);
+    const { report } = await diffCommand({
+      source: new GitChangeSource(),
+      base: 'unused',
+      scope: 'working',
+      changeList: { list, file: 'changes.json' },
+      specs: [],
+      baseDir: repo,
+      repoRoot: repo,
+      out,
+      config: DEFAULTS,
+      runner: new VitestRunner(),
+      engine: new StrykerEngine(),
+      specFinder: imports,
+      imports,
+      packages: new FsPackageLocator(),
+      log: () => {},
+      commandLine: 'contract test',
+      version: 'test',
+    });
+    assert.equal(report.change.kind, 'changes');
+    assert.match(report.change.detail, /^main\.\.working-tree, from changes\.json$/);
+    assert.ok(report.mutants.filter((m) => m.file === 'src/price.ts').every((m) => m.start.line === 2), 'only line 2 of price.ts');
+    assert.ok(report.mutants.some((m) => m.file === 'src/price.ts'));
+    assert.deepEqual(report.viaChangedSpec, ['src/format.ts'], 'the list has no removed text, so its import-line spec edit still counts');
+    assert.deepEqual(report.importOnlySpecs, []);
   } finally {
     rmSync(repo, { recursive: true, force: true });
     rmSync(out, { recursive: true, force: true });

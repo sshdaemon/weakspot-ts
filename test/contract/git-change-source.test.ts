@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'vitest';
-import { GitChangeSource } from '../../src/adapters/git/git-change-source.ts';
+import { GitChangeSource, GitError } from '../../src/adapters/git/git-change-source.ts';
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
@@ -46,7 +46,7 @@ test('git change source: committed, staged and working scopes against a base bra
     const staged = src.changes({ repoRoot: dir, base: 'main', scope: 'staged' });
     assert.deepEqual(staged.map((f) => f.path), ['a.ts', 'b.ts', 'café d.ts', 'src/[id]/x.ts']);
     assert.throws(() => src.changes({ repoRoot: dir, base: 'main', scope: 'committed' }), /uncommitted edits: a\.ts$/, 'src/i/x.ts is dirty but not in the change, and [id] is literal');
-    assert.deepEqual(staged[1], { path: 'b.ts', status: 'added', ranges: [{ start: 1, end: 1 }] });
+    assert.deepEqual(staged[1], { path: 'b.ts', status: 'added', ranges: [{ start: 1, end: 1 }], removed: [] });
 
     const working = src.changes({ repoRoot: dir, base: 'main', scope: 'working' });
     assert.deepEqual(working.map((f) => [f.path, f.ranges]), [
@@ -57,6 +57,7 @@ test('git change source: committed, staged and working scopes against a base bra
       ['src/i/x.ts', [{ start: 1, end: 1 }]],
       ['c.ts', 'whole'],
     ]);
+    assert.deepEqual(working.at(-1)!.removed, [], 'an untracked file removed nothing');
     assert.equal(src.defaultBase(dir), undefined, 'no origin, no default base');
     assert.throws(() => src.changes({ repoRoot: path.join(dir, 'sub'), base: 'main', scope: 'working' }), /not the top of its git checkout|ENOENT|no such/);
   } finally {
@@ -118,6 +119,33 @@ test('git change source: a file that only lost lines comes back with no ranges a
     git(dir, 'commit', '-q', '-am', 'drop a test');
     const out = new GitChangeSource().changes({ repoRoot: dir, base: 'main', scope: 'committed' });
     assert.deepEqual(out, [{ path: 'a.test.ts', status: 'modified', ranges: [], removed: ["test('b', () => {});"] }]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('git change source: verifyHead takes the working tree, or the checked-out commit with the listed files clean', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'weakspot-git-'));
+  try {
+    git(dir, 'init', '-q', '-b', 'main');
+    writeFileSync(path.join(dir, 'a.ts'), 'l1\n');
+    writeFileSync(path.join(dir, 'b.ts'), 'l1\n');
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-q', '-m', 'one');
+    const first = git(dir, 'rev-parse', 'HEAD').trim();
+    writeFileSync(path.join(dir, 'a.ts'), 'l2\n');
+    git(dir, 'commit', '-q', '-am', 'two');
+    const head = git(dir, 'rev-parse', 'HEAD').trim();
+    const src = new GitChangeSource();
+    assert.doesNotThrow(() => src.verifyHead(dir, 'working-tree', ['a.ts']));
+    assert.doesNotThrow(() => src.verifyHead(dir, head, ['a.ts']));
+    assert.doesNotThrow(() => src.verifyHead(dir, 'HEAD', []));
+    assert.throws(() => src.verifyHead(dir, first, ['a.ts']), (err: unknown) => err instanceof GitError && /was read at .* but .* is checked out/.test(err.message));
+    assert.throws(() => src.verifyHead(dir, 'nope', ['a.ts']), /is not a commit/);
+    writeFileSync(path.join(dir, 'b.ts'), 'edited\n');
+    assert.doesNotThrow(() => src.verifyHead(dir, head, ['a.ts']), 'an edit outside the list does not matter');
+    assert.throws(() => src.verifyHead(dir, head, ['a.ts', 'b.ts']), /these files have uncommitted edits: b\.ts/);
+    assert.throws(() => src.verifyHead(path.join(dir, 'sub-missing'), 'working-tree', []), GitError);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

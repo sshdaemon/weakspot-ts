@@ -38,7 +38,7 @@ index 4444444..0000000
 test('parseUnifiedDiff keeps added and modified new-side ranges with the removed text, and drops deleted files', () => {
   assert.deepEqual(parseUnifiedDiff(diff), [
     { path: 'src/a.ts', status: 'modified', ranges: [{ start: 11, end: 13 }, { start: 33, end: 33 }], removed: ['  return 1;', '  gone();\n  gone2();'] },
-    { path: 'src/new.ts', status: 'added', ranges: [{ start: 1, end: 2 }] },
+    { path: 'src/new.ts', status: 'added', ranges: [{ start: 1, end: 2 }], removed: [] },
   ]);
 });
 
@@ -55,7 +55,7 @@ new file mode 100644
 +++ weird
 +more
 `;
-  assert.deepEqual(parseUnifiedDiff(text), [{ path: 'src/plus.ts', status: 'added', ranges: [{ start: 1, end: 2 }] }]);
+  assert.deepEqual(parseUnifiedDiff(text), [{ path: 'src/plus.ts', status: 'added', ranges: [{ start: 1, end: 2 }], removed: [] }]);
 });
 
 test('parseUnifiedDiff unquotes a C-quoted header path', () => {
@@ -100,6 +100,6 @@ test('parseUnifiedDiff keeps each hunk\'s removed text, and a file that only los
   assert.deepEqual(parseUnifiedDiff(twoHunks), [
     { path: 'a.test.ts', status: 'modified', ranges: [{ start: 1, end: 1 }], removed: ["import { a, b } from './a';", "test('b', () => {\n  --b;\n});"] },
     { path: 'gone.ts', status: 'modified', ranges: [], removed: ['const x = 1;\nconst y = 2;'] },
-    { path: 'added.ts', status: 'modified', ranges: [{ start: 1, end: 1 }] },
+    { path: 'added.ts', status: 'modified', ranges: [{ start: 1, end: 1 }], removed: [] },
   ]);
 });

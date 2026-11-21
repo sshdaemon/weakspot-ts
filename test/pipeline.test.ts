@@ -5,7 +5,8 @@ import path from 'node:path';
 import { afterEach, beforeEach, test } from 'vitest';
 import type { ChangedFile, Package, SpecSet } from '../src/change/types.ts';
 import { validate } from '../src/cli/config.ts';
-import { runPipeline, type PipelineInput } from '../src/cli/pipeline.ts';
+import { EngineFailedError } from '../src/adapters/stryker/stryker-engine.ts';
+import { InterruptedError, runPipeline, type PipelineInput } from '../src/cli/pipeline.ts';
 import type { LaneSelection } from '../src/mutation/lanes.ts';
 import type { EngineRunResult, Mutant, PackagePlan } from '../src/mutation/types.ts';
 import type { AcceptedEntry } from '../src/report/suppressions.ts';
@@ -353,4 +354,154 @@ test('a lane prepare runs once per package across the first batch and escalation
   ]);
   assert.deepEqual(seen, [true, true], 'the prepare ran before the first e2e run');
   assert.equal(readFileSync(prepared, 'utf8'), 'x\n', 'and only once, though escalation ran the e2e lane again');
+});
+
+test('progress: report.md is rewritten as runs finish, then replaced by the final report, and packages keep plan order', async () => {
+  const snapshots: string[] = [];
+  const { report } = await run([file('app/src/a.ts'), file('app/src/b.ts')], 'fallback', { 'app/src/a.ts': ['app/src/a.test.ts'] }, { 'app/src/b.ts': ['app/e2e/b.e2e-spec.ts'] }, {}, {
+    extra: {
+      engine: {
+        name: 'slow-unit',
+        workerIdVariable: 'W',
+        run: async (plan) => {
+          // The unit run finishes after the e2e one, so it can read the snapshot the e2e run left.
+          if (plan.lane.name === 'unit') {
+            await new Promise((r) => setTimeout(r, 30));
+            snapshots.push(readFileSync(path.join(out, 'report.md'), 'utf8'));
+          }
+          return { pkg: plan.pkg, mutants: [], testCount: 0, durationMs: 0, artifacts: {} };
+        },
+      },
+    },
+  });
+  assert.match(snapshots[0]!, /\*\*In progress:\*\* 1 of 2 package run\(s\) done\./);
+  assert.match(snapshots[0]!, /\| e2e \| app \|/);
+  assert.deepEqual(report.packages.map((p) => p.lane), ['unit', 'e2e'], 'plan order, though e2e finished first');
+  const final = readFileSync(path.join(out, 'report.md'), 'utf8');
+  assert.doesNotMatch(final, /In progress/);
+  assert.match(final, /\| unit \| app \|[\s\S]*\| e2e \| app \|/);
+});
+
+test('a run that fails after a snapshot leaves report.md marked as stopped, with no report.json', async () => {
+  const failing: MutationEngine = {
+    name: 'fails-second',
+    workerIdVariable: 'W',
+    run: async (plan) => {
+      if (plan.lane.name === 'unit') {
+        await new Promise((r) => setTimeout(r, 20));
+        throw new EngineFailedError('stryker exited with 1 for app and wrote no report');
+      }
+      return { pkg: plan.pkg, mutants: [], testCount: 0, durationMs: 0, artifacts: {} };
+    },
+  };
+  await assert.rejects(
+    () => run([file('app/src/a.ts'), file('app/src/b.ts')], 'fallback', { 'app/src/a.ts': ['app/src/a.test.ts'] }, { 'app/src/b.ts': ['app/e2e/b.e2e-spec.ts'] }, {}, { extra: { engine: failing } }),
+    EngineFailedError,
+  );
+  const md = readFileSync(path.join(out, 'report.md'), 'utf8');
+  assert.match(md, /\*\*Stopped:\*\* stryker exited with 1 for app and wrote no report The run did not finish/);
+  assert.doesNotMatch(md, /In progress/);
+  assert.ok(!existsSync(path.join(out, 'report.json')));
+});
+
+test('an abort during a run ends as interrupted, not as the engine\'s own cancellation', async () => {
+  const controller = new AbortController();
+  const aborting: MutationEngine = {
+    name: 'aborts',
+    workerIdVariable: 'W',
+    run: async (_plan, _runner, opts) => {
+      controller.abort();
+      await new Promise((r) => setTimeout(r, 5));
+      if (opts.signal.aborted) throw new Error('cancelled by the engine');
+      return { pkg: app, mutants: [], testCount: 0, durationMs: 0, artifacts: {} };
+    },
+  };
+  await assert.rejects(
+    () => run([file('app/src/a.ts')], 'fallback', { 'app/src/a.ts': ['app/src/a.test.ts'] }, {}, {}, { extra: { engine: aborting, signal: controller.signal } }),
+    InterruptedError,
+  );
+});
+
+test('import-only follows what each file says about its removals: known none skips, unknown widens', async () => {
+  const spec = 'app/src/a.test.ts';
+  const go = (changed: ChangedFile) =>
+    run([changed], 'fallback', {}, {}, { [spec]: ['app/src/a.ts'] }, {
+      extra: {
+        imports: { importsOf: () => [path.join(repo, 'app/src/a.ts')], importLines: () => new Set([1]), onlyImports: () => true },
+      },
+    });
+  const knownNone = await go({ path: spec, status: 'modified', ranges: [{ start: 1, end: 1 }], removed: [] });
+  assert.deepEqual([knownNone.report.importOnlySpecs, knownNone.report.viaChangedSpec], [[spec], []]);
+  const unknown = await go({ path: spec, status: 'modified', ranges: [{ start: 1, end: 1 }] });
+  assert.deepEqual([unknown.report.importOnlySpecs, unknown.report.viaChangedSpec], [[], ['app/src/a.ts']]);
+  const unquoted = await go({ path: spec, status: 'modified', ranges: [], removedUnquoted: true });
+  assert.deepEqual(unquoted.report.viaChangedSpec, ['app/src/a.ts'], 'a spec that only lost lines in a change list counts');
+});
+
+test('progress during escalation: a snapshot counts retries against the number planned', async () => {
+  for (const f of ['svc/vitest.config.ts', 'svc/vitest-e2e.config.ts']) {
+    mkdirSync(path.dirname(path.join(repo, f)), { recursive: true });
+    writeFileSync(path.join(repo, f), '');
+  }
+  const svc: Package = { dir: path.join(repo, 'svc'), name: 'svc', testConfig: path.join(repo, 'svc/vitest.config.ts') };
+  const uncovered = [survivor('app/src/b.ts', 3, { status: 'NoCoverage', coveredBy: 0 }), survivor('svc/src/c.ts', 3, { status: 'NoCoverage', coveredBy: 0 })];
+  const seen: string[] = [];
+  const config = validate({ escalate: 'noCoverage', lanes: { e2e: { config: 'vitest-e2e.config.ts', specs: 'imports' } } }, 'test');
+  const e2eSpecs = { 'app/src/b.ts': ['app/e2e/b.e2e-spec.ts'], 'svc/src/c.ts': ['svc/e2e/c.e2e-spec.ts'] };
+  await run([file('app/src/b.ts'), file('svc/src/c.ts')], 'fallback', { 'app/src/b.ts': ['app/src/b.test.ts'], 'svc/src/c.ts': ['svc/src/c.test.ts'] }, e2eSpecs, {}, {
+    extra: {
+      config,
+      lanes: [{ config: config.lanes[1]!, finder: table(e2eSpecs) }],
+      packages: { repoRoot: () => repo, packageOf: (_root, abs) => [app, svc].find((p) => abs.startsWith(`${p.dir}/`)) },
+      engine: {
+        name: 'staggered',
+        workerIdVariable: 'W',
+        run: async (plan) => {
+          const mine = uncovered.filter((m) => m.file.startsWith(`${plan.pkg.name}/`));
+          if (plan.lane.name === 'unit') return { pkg: plan.pkg, mutants: mine, testCount: 0, durationMs: 0, artifacts: {} };
+          // svc's retry finishes second and reads the snapshot app's retry left.
+          if (plan.pkg.name === 'svc') {
+            await new Promise((r) => setTimeout(r, 30));
+            seen.push(readFileSync(path.join(out, 'report.md'), 'utf8'));
+          }
+          const killed: Mutant[] = [];
+          for (const m of mine) killed.push({ ...m, id: `e-${m.id}`, lane: 'e2e', status: 'Killed', coveredBy: 1 });
+          return { pkg: plan.pkg, mutants: killed, testCount: 0, durationMs: 0, artifacts: {} };
+        },
+      },
+    },
+  });
+  assert.match(seen[0]!, /\*\*In progress:\*\* first pass done; 1 of 2 retry run\(s\) in a later lane done\./);
+  assert.doesNotMatch(readFileSync(path.join(out, 'report.md'), 'utf8'), /In progress|Stopped/, 'the final page has no banner');
+});
+
+test('the report contract: top-level keys of report.json and schemaVersion', async () => {
+  const { report } = await run([file('app/src/a.ts')], 'fallback', { 'app/src/a.ts': ['app/src/a.test.ts'] }, {});
+  assert.equal(report.schemaVersion, 1);
+  assert.deepEqual(Object.keys(report).toSorted(), [
+    'accepted', 'change', 'command', 'createdAt', 'dropped', 'findings', 'importOnlySpecs', 'killedLater', 'mutants', 'noTestConfig', 'packages', 'repo', 'schemaVersion', 'survivors', 'tool', 'untested', 'version', 'viaChangedSpec', 'viaFallback', 'warnings',
+  ]);
+  assert.deepEqual(JSON.parse(readFileSync(path.join(out, 'report.json'), 'utf8')).schemaVersion, 1);
+});
+
+test('a reused --out loses both old reports, whether the run fails in its only engine run or in a prepare step', async () => {
+  const seed = () => {
+    writeFileSync(path.join(out, 'report.json'), '{"old": true}');
+    writeFileSync(path.join(out, 'report.md'), '# weakspot report\n\nold');
+  };
+  seed();
+  const config = validate({ lanes: { e2e: { config: 'vitest-e2e.config.ts', specs: 'imports', prepare: 'exit 1' } } }, 'test');
+  await assert.rejects(
+    () => run([file('app/src/b.ts')], 'fallback', {}, { 'app/src/b.ts': ['app/e2e/b.e2e-spec.ts'] }, {}, { extra: { config, lanes: [{ config: config.lanes[1]!, finder: table({ 'app/src/b.ts': ['app/e2e/b.e2e-spec.ts'] }) }] } }),
+    /prepare command exited with 1/,
+  );
+  assert.ok(!existsSync(path.join(out, 'report.json')) && !existsSync(path.join(out, 'report.md')), 'a failed prepare leaves no old report');
+  seed();
+  const failing: MutationEngine = {
+    name: 'fails',
+    workerIdVariable: 'W',
+    run: () => Promise.reject(new EngineFailedError('stryker exited with 1')),
+  };
+  await assert.rejects(() => run([file('app/src/a.ts')], 'fallback', { 'app/src/a.ts': ['app/src/a.test.ts'] }, {}, {}, { extra: { engine: failing } }), EngineFailedError);
+  assert.ok(!existsSync(path.join(out, 'report.json')) && !existsSync(path.join(out, 'report.md')), 'a failed only engine run leaves no old report');
 });

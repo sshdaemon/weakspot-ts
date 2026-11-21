@@ -76,8 +76,10 @@ Where the [mutation-testing report schema](https://github.com/stryker-mutator/mu
 | Import-only spec edit | A change to a spec whose added lines and removed hunks are all import declarations or blank lines. It changes no test, so the changed-spec rule ignores it. Removing a test is never import-only. |
 | Mutant key | The identity used by suppressions: the repository plus the survivor id (file, mutator or `model`, and a hash of the enclosing function's name with the original and replacement text). Line numbers are not part of it. |
 | Equivalent mutant | A mutant that cannot change observable behaviour, so no test can kill it. Judged by a consumer, recorded as a suppression. |
-| Finding | A survivor expressed for a consumer: location, claim, evidence, severity. Severity is `medium` for both untested files and weak assertions unless the consumer raises it. |
+| Finding | A survivor or untested file expressed for a consumer: id, kind, file, location, claim, evidence, severity, and for a survivor the mutant itself. Severity is `medium` unless the consumer raises it. Noise and accepted survivors are never findings. |
+| Exit code | 0 no findings, 1 findings, 2 a wrong command, config, change list or store, 3 a run that could not complete, 130 interrupted. 0 and 1 are both completed runs. |
+| Change list | A JSON file naming the repo, base, head and the changed files with their new-side line ranges, written by a caller and read with `diff --changes`; the same format tangle-ts reads, so both tools judge the same lines. |
 | Warning | Something that went wrong without stopping the run, listed in the report: a target that produced no mutants, for example. |
-| Report | `report.json` (everything) and `report.md` (what ran, what was skipped and why, survivors by file). Rewritten as packages finish. |
+| Report | `report.json` (everything, with `schemaVersion`, written once at the end) and `report.md` (what ran, what was skipped and why, survivors by file), rewritten with an "In progress" line as each package run finishes. |
 | Mutants file | `mutants.json`, the model mutants an author submitted, stored next to the report as the replayable record of a run. |
 | Consumer | Whoever reads the report: a review agent, a person, a skill. Outside the tool. |

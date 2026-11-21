@@ -13,4 +13,9 @@ export interface ChangeSource {
   changes(query: ChangeQuery): ChangedFile[];
   /** The base to use when none is configured: the remote's default branch, or undefined when unknown. */
   defaultBase(repoRoot: string): string | undefined;
+  /**
+   * Refuses a change list the working tree does not match: its head must be the working tree, or
+   * the checked-out commit with none of `paths` edited since, since mutants run on the files on disk.
+   */
+  verifyHead(repoRoot: string, head: string, paths: readonly string[]): void;
 }

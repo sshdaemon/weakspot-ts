@@ -38,17 +38,44 @@ export interface AcceptedMatch {
   readonly date: string;
 }
 
-/** A survivor in the shape a review consumer reads. */
+/**
+ * A survivor or an untested file in the shape a consumer reads. Part of the report contract: a
+ * change to these fields bumps REPORT_SCHEMA_VERSION.
+ */
 export interface Finding {
+  /** Stable across runs: `<file>#<mutator>#<hash>` for a survivor, `<file>#untested`. Pass it to `weakspot accept`. */
   readonly id: string;
   readonly severity: 'medium';
   readonly category: 'tests';
   /** `untested`: no spec reaches the file; otherwise the survivor kind. */
   readonly kind: 'untested' | SurvivorKind;
+  /** Repo-relative path. */
+  readonly file: string;
+  /** `file:line:column` for a survivor, the file for an untested file. */
   readonly where: string;
+  /** One sentence a reviewer can act on. */
   readonly claim: string;
   readonly evidence: string;
+  /** Survivor findings only. */
+  readonly mutant?: FindingMutant;
 }
+
+/** Where a survivor sits and what it changed; line and column are 1-based, end exclusive. */
+export interface FindingMutant {
+  readonly lane: string;
+  readonly mutator: string;
+  readonly start: { readonly line: number; readonly column: number };
+  readonly end: { readonly line: number; readonly column: number };
+  readonly original: string;
+  readonly replacement: string;
+  /** Tests in the lane that ran the mutant's location. */
+  readonly coveredBy: number;
+  /** Set when escalation retried it in a later lane, which did not kill it. */
+  readonly escalated?: { readonly lane: string; readonly status: MutantStatus; readonly coveredBy: number };
+}
+
+/** Additions are compatible; bumped whenever a field of Report or Finding is removed, renamed or changes meaning. */
+export const REPORT_SCHEMA_VERSION = 1;
 
 export interface PackageSummary {
   readonly lane: string;
@@ -66,11 +93,13 @@ export interface PackageSummary {
 
 /** What the run looked at: named files, or a diff against a base. */
 export interface ChangeSummary {
-  readonly kind: 'files' | 'diff';
+  /** `changes`: a change list file the caller wrote. */
+  readonly kind: 'files' | 'diff' | 'changes';
   readonly detail: string;
 }
 
 export interface Report {
+  readonly schemaVersion: number;
   readonly tool: 'weakspot-ts';
   readonly version: string;
   readonly createdAt: string;

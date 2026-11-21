@@ -2,44 +2,34 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { FsPackageLocator } from '../adapters/fs/package-locator.ts';
-import { JsonSuppressionStore, SuppressionStoreError } from '../adapters/fs/suppression-store.ts';
-import { GitChangeSource, GitError, remoteRepoName } from '../adapters/git/git-change-source.ts';
-import { SpecCommandError } from '../adapters/shell/command-spec-finder.ts';
-import { PrepareError } from '../adapters/shell/run-command.ts';
+import { JsonSuppressionStore } from '../adapters/fs/suppression-store.ts';
+import { GitChangeSource, remoteRepoName } from '../adapters/git/git-change-source.ts';
 import { laneFinder } from '../adapters/spec/lane-finder.ts';
-import { StrykerEngine, TestsFailBeforeMutationError } from '../adapters/stryker/stryker-engine.ts';
+import { StrykerEngine } from '../adapters/stryker/stryker-engine.ts';
 import { ImportSpecFinder } from '../adapters/ts/import-spec-finder.ts';
 import { TsSourceInspector } from '../adapters/ts/source-inspector.ts';
 import { VitestRunner } from '../adapters/vitest/vitest-runner.ts';
 import type { Report } from '../report/types.ts';
-import { ConfigError, loadConfig, weakspotHome } from './config.ts';
+import { loadConfig, weakspotHome } from './config.ts';
+import { readChangeList, repoRootOf } from './change-list-input.ts';
 import { diffCommand } from './diff-command.ts';
 import { filesCommand } from './files-command.ts';
 import { OPTIONS, USAGE, checkUsage, laneSelectionOf, scopeOf, withFlags, type Flags } from './flags.ts';
+import { exitCodeFor, exitCodeOf, messageFor } from './exit-codes.ts';
 import { UsageError, type PipelineLane } from './pipeline.ts';
 
+/** Never throws: every failure is printed and mapped to an exit code (see EXIT). */
 export async function main(argv: string[]): Promise<number> {
   try {
     return await run(argv);
   } catch (err) {
-    if (err instanceof UsageError || err instanceof ConfigError || err instanceof GitError || err instanceof SuppressionStoreError) {
-      process.stderr.write(`${err.message}\n`);
-      return 2;
-    }
-    if (err instanceof TestsFailBeforeMutationError || err instanceof PrepareError || err instanceof SpecCommandError) {
-      process.stderr.write(`${err.message}\n`);
-      return 1;
-    }
-    if (err instanceof Error && err.message === 'interrupted') {
-      process.stderr.write('interrupted, engine runs stopped\n');
-      return 130;
-    }
-    throw err;
+    process.stderr.write(`${messageFor(err)}\n`);
+    return exitCodeFor(err);
   }
 }
 
 async function run(argv: string[]): Promise<number> {
-  const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, options: OPTIONS });
+  const { values, positionals } = parseFlags(argv);
   const [command, ...rest] = positionals;
   if (values.help) {
     process.stdout.write(USAGE);
@@ -55,7 +45,8 @@ async function run(argv: string[]): Promise<number> {
   const log = values.quiet ? () => {} : (line: string) => process.stderr.write(`${line}\n`);
   const baseDir = values.repo ? path.resolve(values.repo) : process.cwd();
   const start = command === 'files' ? path.dirname(path.resolve(rest[0]!.replace(/:\d+(-\d+)?$/, ''))) : process.cwd();
-  const repoRoot = values.repo ? path.resolve(values.repo) : new FsPackageLocator().repoRoot(start);
+  const changeList = values.changes === undefined ? undefined : { list: readChangeList(values.changes), file: path.resolve(values.changes) };
+  const repoRoot = repoRootOf(values.repo, changeList?.list, () => new FsPackageLocator().repoRoot(start));
   const remote = remoteRepoName(repoRoot);
   const { config: loaded, source } = loadConfig(repoRoot, remote);
   const config = withFlags(loaded, values);
@@ -94,15 +85,25 @@ async function run(argv: string[]): Promise<number> {
     specs: (values.specs ?? []).flatMap((s) => s.split(',')).filter(Boolean),
   };
   const source_ = new GitChangeSource();
-  const base = values.base ?? config.base ?? source_.defaultBase(repoRoot);
+  const base = changeList?.list.base ?? values.base ?? config.base ?? source_.defaultBase(repoRoot);
   if (command === 'diff' && !base) throw new UsageError('no base to compare with: pass --base <ref>, set "base" in the repo config, or set origin/HEAD (git remote set-head origin -a)');
-  const pending = command === 'files' ? filesCommand({ ...shared, files: rest }) : diffCommand({ ...shared, source: source_, base: base!, scope: scopeOf(values) });
+  const pending = command === 'files' ? filesCommand({ ...shared, files: rest }) : diffCommand({ ...shared, source: source_, base: base!, scope: scopeOf(values), ...(changeList ? { changeList } : {}) });
   const { report } = await pending.finally(() => {
     process.off('SIGINT', onSignal);
     process.off('SIGTERM', onSignal);
   });
   process.stdout.write(`${summaryLine(report, Date.now() - started)}\nreport: ${path.join(out, 'report.md')}\n`);
-  return 0;
+  return exitCodeOf(report);
+}
+
+/** Node's parser errors (an unknown flag, a missing value) are the caller's mistake, so a usage error. */
+function parseFlags(argv: string[]) {
+  try {
+    return parseArgs({ args: argv, allowPositionals: true, options: OPTIONS });
+  } catch (err) {
+    if (err instanceof Error && String((err as { code?: unknown }).code ?? '').startsWith('ERR_PARSE_ARGS_')) throw new UsageError(`${err.message}\n${USAGE}`);
+    throw err;
+  }
 }
 
 function suppressionStore(): JsonSuppressionStore {

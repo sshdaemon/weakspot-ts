@@ -21,7 +21,7 @@ export function parseUnifiedDiff(text: string): ChangedFile[] {
   };
   const flush = () => {
     closeHunk();
-    if (path && (ranges.length > 0 || removed.length > 0)) files.push(removed.length > 0 ? { path, status, ranges, removed } : { path, status, ranges });
+    if (path && (ranges.length > 0 || removed.length > 0)) files.push({ path, status, ranges, removed });
     path = undefined;
     status = 'modified';
     ranges = [];

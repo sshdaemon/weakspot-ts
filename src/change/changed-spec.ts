@@ -73,8 +73,9 @@ export function applyChangedSpecRule(input: ChangedSpecInput): ChangedSpecOutcom
 }
 
 function onlyImportsChanged(spec: ChangedFile, input: ChangedSpecInput): boolean {
-  if (spec.ranges === 'whole') return false;
-  if ((spec.removed ?? []).some((text) => !input.onlyImports(text))) return false;
+  // Unknown or unquoted removals could be a deleted test.
+  if (spec.ranges === 'whole' || spec.removed === undefined || spec.removedUnquoted) return false;
+  if (spec.removed.some((text) => !input.onlyImports(text))) return false;
   const lines = input.importLines(spec);
   return spec.ranges.every((r) => Array.from({ length: r.end - r.start + 1 }, (_, i) => r.start + i).every((l) => lines.has(l)));
 }

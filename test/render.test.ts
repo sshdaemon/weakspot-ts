@@ -22,6 +22,7 @@ const mutant = (over: Partial<Mutant>): Mutant => ({
 });
 
 const base: Report = {
+  schemaVersion: 1,
   tool: 'weakspot-ts',
   version: 't',
   createdAt: '2026-11-12T00:00:00.000Z',
@@ -119,4 +120,15 @@ test('renderMarkdown: survivors killed in a later lane get their own section; on
   assert.match(md, /\(no test reaches this line; also survives in the e2e lane with 3 covering test\(s\)\)/);
   assert.match(md, /- L8:2 .*\(no test reaches this line; ended as RuntimeError in the e2e lane, so that lane could not judge it\)/);
   assert.match(md, /## Killed in a later lane \(unit tests miss them, not findings\)\n\n- src\/a\.ts:7:1 `src\/a\.ts#ConditionalExpression#0123456789ab`: e2e lane/);
+});
+
+test('renderMarkdown: a progress snapshot says so under the title', () => {
+  const md = renderMarkdown({ ...base, packages: [] }, { inProgress: '1 of 2 package run(s) done' });
+  assert.match(md, /^# weakspot report\n\n\*\*In progress:\*\* 1 of 2 package run\(s\) done\. This page is rewritten as runs finish; report\.json is written at the end\.\n/);
+});
+
+test('renderMarkdown: a stopped snapshot gives the first line of the error and says nothing is complete', () => {
+  const md = renderMarkdown({ ...base, packages: [] }, { stopped: 'stryker exited with 1 for app.\nlog tail' });
+  assert.match(md, /^# weakspot report\n\n\*\*Stopped:\*\* stryker exited with 1 for app\. The run did not finish: what is below is incomplete, and there is no report\.json\.\n/);
+  assert.doesNotMatch(md, /log tail|In progress/);
 });
