@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { dryRunFailures, mutatePatterns } from '../src/adapters/stryker/stryker-engine.ts';
+import { dryRunFailures, mutatePatterns, textAt } from '../src/adapters/stryker/stryker-engine.ts';
 import { VitestRunner, envSource, shimSource } from '../src/adapters/vitest/vitest-runner.ts';
 import { validate } from '../src/cli/config.ts';
 import { workerOffsets } from '../src/cli/pipeline.ts';
@@ -103,6 +103,13 @@ test('lane config: unit first, config and specs required, limits default to the 
   assert.throws(() => validate({ lanes: { e2e: { config: 'x.config.ts', specs: 'imports', envPerWorker: { A: 1 } } } }, 'cfg'), /envPerWorker must be an object of string values/);
   assert.throws(() => validate({ lanes: { e2e: { config: 'vitest.config.ts', specs: 'imports' } } }, 'cfg'), /is the unit lane's config/);
   assert.deepEqual(validate({}, 'cfg').lanes.map((l) => l.name), ['unit'], 'no lanes key still gives the unit lane');
+  assert.deepEqual(validate({}, 'cfg').noise, ['logging', 'errorMessage', 'catchOnly', 'jsxAttribute']);
+  assert.deepEqual(validate({ noise: ['logging'] }, 'cfg').noise, ['logging']);
+  assert.deepEqual(validate({ noise: [] }, 'cfg').noise, []);
+  assert.equal(validate({}, 'cfg').escalate, 'untested');
+  assert.equal(validate({ escalate: 'noCoverage' }, 'cfg').escalate, 'noCoverage');
+  assert.throws(() => validate({ escalate: 'all' }, 'cfg'), /escalate must be one of untested, noCoverage, survivors, got "all"/);
+  assert.throws(() => validate({ noise: ['loud'] }, 'cfg'), /noise class "loud" is not one of logging, errorMessage, catchOnly, jsxAttribute/);
   for (const bad of [{ map: [['^a', 1]] }, { map: [['^a']] }, { map: ['^a'] }, { map: [['^a', 'g', 'h']] }]) {
     assert.throws(() => validate(laneWithSpecs(bad), 'cfg'), /lanes\.e2e\.specs\.map entries are \[regex, glob\] pairs/);
   }
@@ -118,5 +125,23 @@ test('lane config: unit first, config and specs required, limits default to the 
   assert.throws(
     () => validate({ lanes: { a: { config: 'x.config.ts', specs: 'imports' }, b: { config: 'x.config.ts', specs: 'imports' } } }, 'cfg'),
     /lanes\.b and lanes\.a share the config "x\.config\.ts"/,
+  );
+});
+
+test('textAt reads report positions: 1-based lines and columns, end column exclusive, across lines', () => {
+  const lines = ['const a = 1;', 'if (a > 0) {', '  run();', '}'];
+  assert.equal(textAt(lines, { line: 2, column: 5 }, { line: 2, column: 10 }), 'a > 0');
+  assert.equal(textAt(lines, { line: 2, column: 12 }, { line: 4, column: 2 }), '{\n  run();\n}');
+  assert.equal(textAt(lines, { line: 9, column: 1 }, { line: 9, column: 3 }), '', 'a position past the source reads nothing');
+  assert.equal(textAt(['f(() => {', '  go();', '}) + 1;'], { line: 1, column: 3 }, { line: 3, column: 2 }), '() => {\n  go();\n}', 'the last line is cut at the end column');
+});
+
+test('mutatePatterns: exact spans become Stryker column ranges, one less than the report columns', () => {
+  assert.deepEqual(
+    mutatePatterns('src/[id]/a.ts', [{ start: 1, end: 9 }], [
+      { start: { line: 3, column: 7 }, end: { line: 3, column: 12 } },
+      { start: { line: 5, column: 1 }, end: { line: 6, column: 2 } },
+    ]),
+    ['src/[[]id[]]/a.ts:3:6-3:11', 'src/[[]id[]]/a.ts:5:0-6:1'],
   );
 });

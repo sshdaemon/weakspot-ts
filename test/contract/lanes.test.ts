@@ -10,6 +10,7 @@ import { ImportSpecFinder } from '../../src/adapters/ts/import-spec-finder.ts';
 import { VitestRunner } from '../../src/adapters/vitest/vitest-runner.ts';
 import { validate } from '../../src/cli/config.ts';
 import { filesCommand } from '../../src/cli/files-command.ts';
+import { survivorId } from '../../src/report/suppressions.ts';
 import type { LaneSelection } from '../../src/mutation/lanes.ts';
 
 const repoRoot = path.resolve(import.meta.dirname, '../../fixtures/vitest-lanes');
@@ -82,7 +83,7 @@ test('lanes: the e2e lane takes the files the unit lane left, with per-worker en
     assert.ok(report.mutants.filter((m) => m.file === 'packages/app/src/calc.ts').every((m) => m.lane === 'e2e'));
     const weak = report.survivors.find((s) => s.mutant.file === 'packages/app/src/calc.ts' && s.kind === 'weakAssertion' && s.mutant.start.line === 8);
     assert.ok(weak, `isEven's weak test leaves a survivor: ${JSON.stringify(report.survivors.map((s) => [s.mutant.start.line, s.kind]))}`);
-    assert.ok(report.findings.some((f) => f.id === weak!.mutant.id && /in the e2e lane/.test(f.evidence)));
+    assert.ok(report.findings.some((f) => f.id === survivorId(weak!.mutant) && /in the e2e lane/.test(f.evidence)));
     assert.match(md, /## No unit spec, checked by a later lane\n\n- packages\/app\/src\/calc\.ts: e2e lane/);
     assert.match(md, /### packages\/app\/src\/calc\.ts \(e2e lane\)/);
     assert.ok(existsSync(path.join(out, 'engine')), 'engine dirs under out');

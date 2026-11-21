@@ -1,11 +1,41 @@
-import type { Mutant } from '../mutation/types.ts';
+import type { Mutant, MutantStatus } from '../mutation/types.ts';
 
 /** `static`: module-level code that ran against the whole spec set with no per-test coverage. */
 export type SurvivorKind = 'noCoverage' | 'weakAssertion' | 'static';
 
+/**
+ * A label for a survivor that is unlikely to matter: inside a logging call, inside the arguments
+ * of an error being built, inside a catch block, or inside a JSX attribute.
+ */
+export type NoiseClass = 'logging' | 'errorMessage' | 'catchOnly' | 'jsxAttribute';
+
+export const NOISE_CLASSES: readonly NoiseClass[] = ['logging', 'errorMessage', 'catchOnly', 'jsxAttribute'];
+
 export interface Survivor {
   readonly mutant: Mutant;
   readonly kind: SurvivorKind;
+  /** Set when the survivor falls in a noise class the config hides; such survivors are not findings. */
+  readonly noise?: NoiseClass;
+  /** Set when the survivor's id was accepted for this repository; such survivors are not findings. */
+  readonly accepted?: { readonly reason: string; readonly date: string };
+  /** Set when escalation retried it in a later lane and it was not killed there: it survived, or errored. */
+  readonly escalated?: { readonly lane: string; readonly status: MutantStatus; readonly coveredBy: number };
+}
+
+/** A unit-lane survivor that escalation retried in a later lane, where a test killed it. */
+export interface KilledLater {
+  readonly id: string;
+  readonly where: string;
+  readonly lane: string;
+}
+
+/** An accepted entry that matched something in this run. */
+export interface AcceptedMatch {
+  readonly id: string;
+  /** `file:line:column` for a survivor, the file for an untested file. */
+  readonly where: string;
+  readonly reason: string;
+  readonly date: string;
 }
 
 /** A survivor in the shape a review consumer reads. */
@@ -22,6 +52,8 @@ export interface Finding {
 
 export interface PackageSummary {
   readonly lane: string;
+  /** A run that retried unit-lane survivors, not one that took untested files. */
+  readonly escalated: boolean;
   readonly name: string;
   readonly dir: string;
   readonly targets: readonly string[];
@@ -50,6 +82,8 @@ export interface Report {
   readonly untested: readonly string[];
   /** Sources mutated whole because a spec that imports them changed. */
   readonly viaChangedSpec: readonly string[];
+  /** Changed specs whose edit touched only imports, so the changed-spec rule left their sources alone. */
+  readonly importOnlySpecs: readonly string[];
   /** Files with no unit spec that a later lane checked. */
   readonly viaFallback: readonly { file: string; lane: string }[];
   readonly noTestConfig: readonly string[];
@@ -57,5 +91,9 @@ export interface Report {
   readonly warnings: readonly string[];
   readonly mutants: readonly Mutant[];
   readonly survivors: readonly Survivor[];
+  /** Unit-lane survivors a later lane's tests killed; they are not findings. */
+  readonly killedLater: readonly KilledLater[];
+  /** Accepted survivors and untested files this run met; they are not findings. */
+  readonly accepted: readonly AcceptedMatch[];
   readonly findings: readonly Finding[];
 }

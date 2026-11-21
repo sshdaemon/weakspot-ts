@@ -14,6 +14,10 @@ export interface ChangedSpecInput {
   readonly patterns: SpecPatterns;
   /** The package of a changed spec, and the absolute sources it imports (mocked and type-only ones already excluded). */
   readonly importsOf: (spec: ChangedFile) => { pkg: Package; imports: readonly string[] } | undefined;
+  /** Lines of the spec that hold only imports or nothing. */
+  readonly importLines: (spec: ChangedFile) => ReadonlySet<number>;
+  /** True when a removed hunk's text is only imports and blank lines. */
+  readonly onlyImports: (text: string) => boolean;
 }
 
 export interface ChangedSpecOutcome {
@@ -22,20 +26,29 @@ export interface ChangedSpecOutcome {
   readonly packages: Map<string, Package | undefined>;
   /** Sources added by the rule, mutated whole. */
   readonly viaChangedSpec: string[];
+  /** Changed specs the rule left alone because only their imports changed. */
+  readonly importOnly: string[];
 }
 
 /**
  * The changed-spec rule: a changed unit spec mutates the sources it imports, whole, with that
  * spec in their spec set. A source already in the change keeps its ranges and gains the spec.
  * Imports outside the spec's package, dropped by triage, or that are specs themselves are ignored.
+ * A spec whose added lines and removed hunks are all import declarations or blank lines changed no
+ * test, so it is skipped; a removed test always counts as a change.
  */
 export function applyChangedSpecRule(input: ChangedSpecInput): ChangedSpecOutcome {
   const kept = [...input.kept];
   const specs = new Map(input.specs);
   const packages = new Map(input.packages);
   const viaChangedSpec: string[] = [];
+  const importOnly: string[] = [];
   for (const spec of input.changed) {
     if (!isUnitSpec(spec.path, input.patterns)) continue;
+    if (onlyImportsChanged(spec, input)) {
+      importOnly.push(spec.path);
+      continue;
+    }
     const found = input.importsOf(spec);
     if (!found) continue;
     for (const abs of found.imports) {
@@ -56,7 +69,14 @@ export function applyChangedSpecRule(input: ChangedSpecInput): ChangedSpecOutcom
       viaChangedSpec.push(file);
     }
   }
-  return { kept, specs, packages, viaChangedSpec };
+  return { kept, specs, packages, viaChangedSpec, importOnly };
+}
+
+function onlyImportsChanged(spec: ChangedFile, input: ChangedSpecInput): boolean {
+  if (spec.ranges === 'whole') return false;
+  if ((spec.removed ?? []).some((text) => !input.onlyImports(text))) return false;
+  const lines = input.importLines(spec);
+  return spec.ranges.every((r) => Array.from({ length: r.end - r.start + 1 }, (_, i) => r.start + i).every((l) => lines.has(l)));
 }
 
 /** Absolute path of a repo-relative file. */

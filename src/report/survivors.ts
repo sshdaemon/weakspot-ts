@@ -1,12 +1,16 @@
 import type { LineRange } from '../change/types.ts';
 import type { Mutant } from '../mutation/types.ts';
-import type { Finding, Survivor } from './types.ts';
+import { survivorId, untestedId } from './suppressions.ts';
+import type { Finding, NoiseClass, Survivor } from './types.ts';
 
-/** Survived or NoCoverage mutants. The kind follows coverage, not the engine's label. */
-export function survivorsOf(mutants: readonly Mutant[]): Survivor[] {
+/** Survived or NoCoverage mutants. The kind follows coverage, not the engine's label; `noiseOf` labels the hidden ones. */
+export function survivorsOf(mutants: readonly Mutant[], noiseOf: (m: Mutant) => NoiseClass | undefined = () => undefined): Survivor[] {
   return mutants
     .filter((m) => m.status === 'Survived' || m.status === 'NoCoverage')
-    .map((m) => ({ mutant: m, kind: kindOf(m) }));
+    .map((m) => {
+      const noise = noiseOf(m);
+      return noise ? { mutant: m, kind: kindOf(m), noise } : { mutant: m, kind: kindOf(m) };
+    });
 }
 
 function kindOf(m: Mutant): Survivor['kind'] {
@@ -28,7 +32,7 @@ export function untestedFindings(files: ReadonlyMap<string, readonly LineRange[]
     const lines = ranges === 'whole' ? 0 : ranges.reduce((n, r) => n + r.end - r.start + 1, 0);
     const scope = ranges === 'whole' ? 'the whole file goes' : changedLines(lines);
     return {
-      id: `${file}#untested`,
+      id: untestedId(file),
       severity: 'medium',
       category: 'tests',
       kind: 'untested',
@@ -43,16 +47,23 @@ function changedLines(n: number): string {
   return n === 1 ? 'its 1 changed line goes' : `its ${n} changed lines go`;
 }
 
+/** Survivors in a hidden noise class, or accepted, are left out. */
 export function findingsOf(survivors: readonly Survivor[]): Finding[] {
-  return survivors.map(({ mutant: m, kind }) => ({
-    id: m.id,
+  return survivors.filter((s) => !s.noise && !s.accepted).map(({ mutant: m, kind, escalated }) => ({
+    id: survivorId(m),
     severity: 'medium',
     category: 'tests',
     kind,
     where: `${m.file}:${m.start.line}:${m.start.column}`,
     claim: claimOf(m, kind),
-    evidence: `${m.mutator} mutant in the ${m.lane} lane, status ${m.status}${m.statusReason ? `: ${m.statusReason}` : ''}`,
+    evidence: `${m.mutator} mutant in the ${m.lane} lane, status ${m.status}${m.statusReason ? `: ${m.statusReason}` : ''}${escalated ? `; ${laterLane(escalated)}` : ''}`,
   }));
+}
+
+/** How a retry in a later lane ended, when it did not kill the mutant. */
+export function laterLane(e: NonNullable<Survivor['escalated']>): string {
+  if (e.status === 'Survived' || e.status === 'NoCoverage') return `also survives in the ${e.lane} lane with ${e.coveredBy} covering test(s)`;
+  return `ended as ${e.status} in the ${e.lane} lane, so that lane could not judge it`;
 }
 
 function claimOf(m: Mutant, kind: Survivor['kind']): string {

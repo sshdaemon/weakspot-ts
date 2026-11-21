@@ -11,7 +11,7 @@ const changed = (path: string, ranges: ChangedFile['ranges'] = 'whole'): Changed
 const kept = (f: ChangedFile): TriageDecision => ({ file: f, kept: true, fileClass: 'logic', reason: '' });
 const set = (file: string, ...specs: string[]): SpecSet => ({ file, specs, how: specs.length > 0 ? 'imports' : 'none' });
 
-const run = (files: ChangedFile[], keptFiles: ChangedFile[], specs: [string, SpecSet][], imports: Record<string, string[]>) =>
+const run = (files: ChangedFile[], keptFiles: ChangedFile[], specs: [string, SpecSet][], imports: Record<string, string[]>, importLines: Record<string, number[]> = {}) =>
   applyChangedSpecRule({
     repoRoot,
     changed: files,
@@ -21,6 +21,8 @@ const run = (files: ChangedFile[], keptFiles: ChangedFile[], specs: [string, Spe
     skip: DEFAULT_SKIP,
     patterns: DEFAULT_SPEC_PATTERNS,
     importsOf: (spec) => (imports[spec.path] ? { pkg, imports: imports[spec.path]! } : undefined),
+    importLines: (spec) => new Set(importLines[spec.path] ?? []),
+    onlyImports: (text) => text.split('\n').every((l) => !l.trim() || l.startsWith('import ')),
   });
 
 test('a changed spec adds the sources it imports, whole, with itself as the spec set', () => {
@@ -58,4 +60,34 @@ test('a changed spec with no known package adds nothing', () => {
   const out = run([changed('app/src/a.test.ts')], [], [], {});
   assert.deepEqual(out.viaChangedSpec, []);
   assert.deepEqual(out.kept, []);
+});
+
+test('a spec whose changed lines are all imports or blank lines changed no test and widens nothing', () => {
+  const imports = { 'app/src/a.test.ts': ['/repo/app/src/a.ts'] };
+  const lines = { 'app/src/a.test.ts': [1, 2, 3, 5] };
+  const onlyImports = run([changed('app/src/a.test.ts', [{ start: 1, end: 3 }, { start: 5, end: 5 }])], [], [], imports, lines);
+  assert.deepEqual(onlyImports.viaChangedSpec, []);
+  assert.deepEqual(onlyImports.importOnly, ['app/src/a.test.ts']);
+  const withTest = run([changed('app/src/a.test.ts', [{ start: 2, end: 4 }])], [], [], imports, lines);
+  assert.deepEqual(withTest.viaChangedSpec, ['app/src/a.ts'], 'line 4 is a test line');
+  assert.deepEqual(withTest.importOnly, []);
+  const added = run([changed('app/src/a.test.ts', 'whole')], [], [], imports, lines);
+  assert.deepEqual(added.viaChangedSpec, ['app/src/a.ts'], 'a new spec is never import-only');
+});
+
+test('import-only needs every changed range inside the imports, and blank lines may hold spaces', () => {
+  const imports = { 'app/src/a.test.ts': ['/repo/app/src/a.ts'] };
+  const out = run([changed('app/src/a.test.ts', [{ start: 1, end: 1 }, { start: 4, end: 4 }])], [], [], imports, { 'app/src/a.test.ts': [1, 2] });
+  assert.deepEqual(out.viaChangedSpec, ['app/src/a.ts'], 'line 4 is a test line even though line 1 is an import');
+});
+
+test('a removed test makes a spec changed, even when the only added line is an import', () => {
+  const imports = { 'app/src/a.test.ts': ['/repo/app/src/a.ts'] };
+  const lines = { 'app/src/a.test.ts': [1] };
+  const droppedTest = run([{ ...changed('app/src/a.test.ts', [{ start: 1, end: 1 }]), removed: ["test('b', () => {", '  expect(b()).toBe(1);', '});'] }], [], [], imports, lines);
+  assert.deepEqual(droppedTest.viaChangedSpec, ['app/src/a.ts']);
+  const droppedImport = run([{ ...changed('app/src/a.test.ts', [{ start: 1, end: 1 }]), removed: ["import { b } from './b';", ''] }], [], [], imports, lines);
+  assert.deepEqual(droppedImport.importOnly, ['app/src/a.test.ts'], 'removing an import alone is still import-only');
+  const onlyRemoved = run([{ ...changed('app/src/a.test.ts', []), removed: ["test('b', () => {});"] }], [], [], imports, lines);
+  assert.deepEqual(onlyRemoved.viaChangedSpec, ['app/src/a.ts'], 'a spec change that only deletes a test counts');
 });

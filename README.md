@@ -13,7 +13,7 @@ A local tool for coding with LLM agents: a person or an agent runs it against a 
 5. Runs [StrykerJS](https://stryker-mutator.io) on exactly those ranges with exactly those specs, so a run takes seconds, not minutes.
 6. Writes `report.md` and `report.json`: what ran, what was skipped and why, and the survivors with how many tests reached each one.
 
-Nothing is installed into or written inside the project: Stryker, its Vitest runner and a pinned Vitest live in this repo's `node_modules`, temp dirs and reports live under `~/.weakspot/`, and Vitest's results cache is switched off so nothing lands in the project's `node_modules/.vite`.
+Nothing is installed into or written inside the project: Stryker, its Vitest runner and a pinned Vitest live in this repo's `node_modules`, temp dirs, reports and a cache of each file's parsed imports (keyed by its content) live under `~/.weakspot/`, and Vitest's results cache is switched off so nothing lands in the project's `node_modules/.vite`.
 
 ## Use
 
@@ -25,9 +25,9 @@ node bin/weakspot.js files src/utils/money.ts
 node bin/weakspot.js files src/a.ts:10-40 src/b.ts --specs src/a.spec.ts
 ```
 
-`diff` compares the merge base of HEAD and the base ref with the working tree (committed, staged, unstaged and untracked), or with the index (`--staged`), or with HEAD (`--committed`). The base is `--base`, else the repo config's `base`, else the remote's default branch (`origin/HEAD`); without any of those the command stops and says so. Deleted files and pure deletions are ignored; only added and modified lines are mutated. `--repo` must be the top of the git checkout.
+`diff` compares the merge base of HEAD and the base ref with the working tree (committed, staged, unstaged and untracked), or with the index (`--staged`), or with HEAD (`--committed`). The base is `--base`, else the repo config's `base`, else the remote's default branch (`origin/HEAD`); without any of those the command stops and says so. Deleted files are ignored and only added and modified lines are mutated; a spec that only lost lines (a deleted test) still counts as a changed spec. `--repo` must be the top of the git checkout.
 
-Other options: `--repo`, `--specs`, `--depth`, `--lanes`, `--out`, `--timeout-ms`, `--concurrency`, `--exclude`, `--quiet`. `node bin/weakspot.js --help` lists them. Paths are relative to the cwd, or to `--repo` when it is given. A path that does not exist or lies outside the repo is an error, not an untested file.
+Other options: `--repo`, `--specs`, `--depth`, `--lanes`, `--escalate`, `--out`, `--timeout-ms`, `--concurrency`, `--exclude`, `--quiet`. `node bin/weakspot.js --help` lists them. Paths are relative to the cwd, or to `--repo` when it is given. A path that does not exist or lies outside the repo is an error, not an untested file.
 
 Needs Node 22.18 or later (the CLI runs the TypeScript sources directly) and a project on Vitest 5, the major this tool pins, configured through `vitest.config.*` or `vite.config.*`. A project on another Vitest major needs the pin in `package.json` changed to match, since Stryker's runner loads the tool's copy while the specs import the project's.
 
@@ -61,6 +61,8 @@ A lane is one way of running tests against a package: a runner config, a way to 
 - `prepare`: run once in the package before the lane's engine run, for projects whose tests consume built packages.
 - `timeoutMs`, `concurrency`: the lane's limits; they default to the top-level values, and `--timeout-ms` or `--concurrency` override every lane.
 
+`escalate` (or `--escalate`) also sends unit-lane survivors to the next lane: `untested` (the default) sends only files with no unit spec, `noCoverage` also retries the lines of the unit lane's no-coverage survivors, `survivors` retries every unit survivor's lines. A file one unit spec imports stays in the unit lane even when that spec reaches almost none of it, so `noCoverage` is the setting that lets an end-to-end lane check such a file. Retries run after the first pass, on the survivors' lines only, and not with `--lanes`, where every lane already ran every file.
+
 The `unit` entry may only set limits, `envPerWorker` and `prepare`. `--lanes e2e` (or a list, or `all`) runs the named lanes for every file instead of the fallback; `--specs` names specs for the unit lane only, so it is refused with a `--lanes` list that leaves unit out. The runner's `globalSetup` stays in the real package rather than the engine's sandbox copy, since it runs before any spec and may reach outside the package.
 
 ## Reading a report
@@ -71,6 +73,20 @@ The `unit` entry may only set limits, `envPerWorker` and `prepare`. `--lanes e2e
 - **Untested**: a changed file with no spec found, reported as a finding too. Pass `--specs` to name one.
 - **Ignored**: excluded mutators. Not counted against the tests.
 - **Warnings**: a target that produced no mutants, for example a range with nothing mutable in it.
+- **Noise**: survivors inside a logging call (`logging`), in the message of an error thrown directly (`errorMessage`, the first argument of `throw new XError(...)` only), in a catch block that only logs and rethrows the caught error (`catchOnly`), or in a literal JSX attribute value or a `className`, `class` or `style` expression (`jsxAttribute`). Nothing inside a function, such as an event handler or a callback, is noise for sitting in an attribute or an error. They are listed with their class and left out of the findings; `noise` in the repo config picks which classes are hidden (all four by default, `[]` for none).
+- **Accepted**: survivors and untested files you accepted, with your reason. They are not findings.
+- **Killed in a later lane**: unit-lane survivors that escalation retried in the next lane, where a test killed them. Unit tests miss them, but the change is checked.
+
+Each finding has an `id` that survives edits elsewhere in the file and moves within its function: the file, the mutator and a hash of the enclosing function's name with the original and replacement text, or `<file>#untested`. Renaming that function changes the id. Accept one so it stops being reported, and revoke it to see it again:
+
+```bash
+node bin/weakspot.js accept 'src/price.ts#ConditionalExpression#20853cfd978e' --reason "rounding is covered by the invoice tests"
+node bin/weakspot.js accept 'src/price.ts#ConditionalExpression#20853cfd978e' --revoke
+```
+
+Decisions live in `~/.weakspot/accepted.json`, per repository (keyed like the repo config, so worktrees share them). An accepted mutant still runs; only its report entry changes.
+
+A spec whose edit added and removed only import declarations or blank lines is listed but not used to mutate the sources it imports; removing a test always counts as a change.
 
 If every mutant of a file survives with no covering test, the run fails instead of reporting them: the specs never loaded the instrumented copy, usually because an import resolves outside the sandbox. The shim rebases aliases that point into the package, so this should only happen for imports it cannot see.
 
@@ -89,4 +105,4 @@ npm run test:contract # runs the fixture project through Vitest and Stryker (sec
 
 ## Status
 
-Phases 1 to 3: the `files` and `diff` commands, import-graph spec discovery, lanes with the fallback rule, the Vitest adapter and the Stryker engine. Coming: noise classes and suppressions, escalation of survivors to the next lane, model-written mutants, PR input, a coverage map, a Jest adapter.
+Phases 1 to 4: the `files`, `diff` and `accept` commands, import-graph spec discovery with a parse cache, lanes with the fallback rule and escalation, noise classes, accepted survivors, the Vitest adapter and the Stryker engine. Coming: a stable findings contract and exit codes, model-written mutants, PR input, a coverage map, a Jest adapter.

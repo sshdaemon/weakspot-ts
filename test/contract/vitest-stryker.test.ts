@@ -57,6 +57,7 @@ test('vitest + stryker: the fixture yields killed mutants, a weak assertion and 
   assert.ok((pkg.counts['Killed'] ?? 0) >= 5, `killed: ${JSON.stringify(pkg.counts)}`);
   assert.ok((pkg.counts['NoCoverage'] ?? 0) >= 1, `no coverage: ${JSON.stringify(pkg.counts)}`);
   assert.ok(report.survivors.some((s) => s.kind === 'weakAssertion' && s.mutant.start.line === 9), 'the label() condition survives');
+  assert.ok(report.mutants.some((m) => m.start.line === 9 && m.original === 'pence % 100 === 0'), 'mutants carry the source text they replace');
   assert.deepEqual(report.warnings, []);
   assert.ok(hasJson);
   assert.match(md, /## Survivors \(\d+\)/);

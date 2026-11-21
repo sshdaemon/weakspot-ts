@@ -35,9 +35,9 @@ index 4444444..0000000
 -c
 `;
 
-test('parseUnifiedDiff keeps added and modified new-side ranges, drops pure deletions and deleted files', () => {
+test('parseUnifiedDiff keeps added and modified new-side ranges with the removed text, and drops deleted files', () => {
   assert.deepEqual(parseUnifiedDiff(diff), [
-    { path: 'src/a.ts', status: 'modified', ranges: [{ start: 11, end: 13 }, { start: 33, end: 33 }] },
+    { path: 'src/a.ts', status: 'modified', ranges: [{ start: 11, end: 13 }, { start: 33, end: 33 }], removed: ['  return 1;', '  gone();\n  gone2();'] },
     { path: 'src/new.ts', status: 'added', ranges: [{ start: 1, end: 2 }] },
   ]);
 });
@@ -71,4 +71,35 @@ test('parseUnifiedDiff unquotes a C-quoted header path', () => {
   assert.equal(unquote('"a\\tb\u{1F600}.ts"'), 'a\tb\u{1F600}.ts', 'a raw character outside the BMP survives');
   assert.equal(unquote('"caf\\303\\251 \u{1F600}"'), 'caf\u00E9 \u{1F600}');
   assert.equal(unquote('plain'), 'plain');
+});
+
+test('parseUnifiedDiff keeps each hunk\'s removed text, and a file that only lost lines comes back with no ranges', () => {
+  const twoHunks = [
+    'diff --git a/a.test.ts b/a.test.ts',
+    '--- a/a.test.ts',
+    '+++ b/a.test.ts',
+    '@@ -1 +1 @@',
+    "-import { a, b } from './a';",
+    "+import { a } from './a';",
+    '@@ -6,3 +5,0 @@',
+    "-test('b', () => {",
+    '-  --b;',
+    '-});',
+    'diff --git a/gone.ts b/gone.ts',
+    '--- a/gone.ts',
+    '+++ b/gone.ts',
+    '@@ -3,2 +2,0 @@',
+    '-const x = 1;',
+    '-const y = 2;',
+    'diff --git a/added.ts b/added.ts',
+    '--- a/added.ts',
+    '+++ b/added.ts',
+    '@@ -0,0 +1 @@',
+    '+export const z = 1;',
+  ].join('\n');
+  assert.deepEqual(parseUnifiedDiff(twoHunks), [
+    { path: 'a.test.ts', status: 'modified', ranges: [{ start: 1, end: 1 }], removed: ["import { a, b } from './a';", "test('b', () => {\n  --b;\n});"] },
+    { path: 'gone.ts', status: 'modified', ranges: [], removed: ['const x = 1;\nconst y = 2;'] },
+    { path: 'added.ts', status: 'modified', ranges: [{ start: 1, end: 1 }] },
+  ]);
 });
