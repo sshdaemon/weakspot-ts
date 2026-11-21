@@ -2,22 +2,30 @@ import type { ChangedFile, FileStatus, LineRange } from './types.ts';
 
 /**
  * Reads `git diff -U0 --no-color --find-renames` output into changed files with the line ranges that
- * were added or modified on the new side (a renamed file under its new path). Pure deletions have
- * no new-side lines and are dropped; deleted files never appear.
+ * were added or modified on the new side (a renamed file under its new path), and the text each hunk
+ * removed. A file whose hunks only remove lines comes back with no ranges; deleted files never appear.
  */
 export function parseUnifiedDiff(text: string): ChangedFile[] {
   const files: ChangedFile[] = [];
   let path: string | undefined;
   let status: FileStatus = 'modified';
   let ranges: LineRange[] = [];
+  let removed: string[] = [];
+  let hunkRemoved: string[] = [];
   // Header lines (`---`, `+++`) are only read between `diff --git` and the first `@@`; a content
   // line starting with `++ ` inside a hunk is not a header.
   let inHeader = false;
+  const closeHunk = () => {
+    if (hunkRemoved.length > 0) removed.push(hunkRemoved.join('\n'));
+    hunkRemoved = [];
+  };
   const flush = () => {
-    if (path && ranges.length > 0) files.push({ path, status, ranges });
+    closeHunk();
+    if (path && (ranges.length > 0 || removed.length > 0)) files.push(removed.length > 0 ? { path, status, ranges, removed } : { path, status, ranges });
     path = undefined;
     status = 'modified';
     ranges = [];
+    removed = [];
   };
   for (const line of text.split('\n')) {
     if (line.startsWith('diff --git ')) {
@@ -31,12 +39,15 @@ export function parseUnifiedDiff(text: string): ChangedFile[] {
       const target = unquote(line.slice(4).replace(/\t.*$/, '').trim());
       path = target === '/dev/null' ? undefined : target.replace(/^b\//, '');
     } else if (line.startsWith('@@ ')) {
+      closeHunk();
       inHeader = false;
       const m = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
       if (!m || !m[1]) continue;
       const start = Number(m[1]);
       const count = m[2] === undefined ? 1 : Number(m[2]);
       if (count > 0 && path) ranges.push({ start, end: start + count - 1 });
+    } else if (!inHeader && path && line.startsWith('-')) {
+      hunkRemoved.push(line.slice(1));
     }
   }
   flush();

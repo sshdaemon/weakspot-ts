@@ -8,4 +8,8 @@ export interface SpecFinder {
 /** Answers which sources a spec imports (mocked and type-only ones excluded), for the changed-spec rule. */
 export interface ImportsReader {
   importsOf(repoRoot: string, pkg: Package, absSpec: string): string[];
+  /** 1-based lines that hold only import declarations or nothing, so an edit there changes no test. */
+  importLines(absSpec: string): ReadonlySet<number>;
+  /** True when removed text is only import declarations and blank lines; a fragment that does not parse as such is not. */
+  onlyImports(text: string): boolean;
 }

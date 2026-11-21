@@ -27,6 +27,10 @@ test('withFlags: a limit flag overrides the top level and every lane; without it
   assert.deepEqual(flagged.excludedMutations, ['A', 'B']);
   assert.deepEqual(flagged.lanes.map((l) => [l.name, l.timeoutMs, l.concurrency]), [['unit', 500, 3], ['e2e', 500, 3]]);
   assert.throws(() => withFlags(config, { depth: '3' }), /--depth must be 1 or 2/);
+  assert.equal(withFlags(config, { escalate: 'survivors' }).escalate, 'survivors');
+  assert.equal(withFlags(config, {}).escalate, 'untested');
+  assert.equal(withFlags({ ...config, escalate: 'noCoverage' }, {}).escalate, 'noCoverage', 'without the flag the config value stands');
+  assert.throws(() => withFlags(config, { escalate: 'x' }), /--escalate must be one of/);
   assert.throws(() => withFlags(config, { concurrency: '0' }), /--concurrency must be a positive integer/);
 });
 
@@ -42,4 +46,24 @@ test('scopeOf: committed wins over staged, working by default', () => {
   assert.equal(scopeOf({}), 'working');
   assert.equal(scopeOf({ staged: true }), 'staged');
   assert.equal(scopeOf({ committed: true }), 'committed');
+});
+
+test('accept: one valid id, a reason unless revoking, and no run flags', () => {
+  const id = 'src/a.ts#EqualityOperator#0123456789ab';
+  assert.doesNotThrow(() => checkUsage('accept', [id], { reason: 'equivalent' }));
+  assert.doesNotThrow(() => checkUsage('accept', ['src/a.ts#untested'], { revoke: true, repo: '.' }));
+  assert.throws(() => checkUsage('accept', [], { reason: 'x' }), /give exactly one id/);
+  assert.throws(() => checkUsage('accept', ['src/a.ts'], { reason: 'x' }), /is not a survivor id/);
+  assert.throws(() => checkUsage('accept', [id], {}), /--reason is required/);
+  assert.throws(() => checkUsage('accept', [id], { reason: '  ' }), /--reason is required/);
+  assert.throws(() => checkUsage('accept', [id], { revoke: true, reason: 'x' }), /--revoke takes no --reason/);
+  assert.throws(() => checkUsage('accept', [id], { reason: 'x', base: 'main' }), /--base do not apply/);
+  assert.throws(() => checkUsage('diff', [], { reason: 'x' }), /--reason and --revoke apply to accept only/);
+});
+
+test('--escalate other than untested is refused with --lanes', () => {
+  assert.throws(() => checkUsage('diff', [], { lanes: 'all', escalate: 'noCoverage' }), /--escalate retries survivors in the next lane/);
+  assert.doesNotThrow(() => checkUsage('diff', [], { lanes: 'all', escalate: 'untested' }));
+  assert.doesNotThrow(() => checkUsage('diff', [], { escalate: 'survivors' }));
+  assert.doesNotThrow(() => checkUsage('diff', [], { lanes: 'all' }));
 });

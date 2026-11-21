@@ -21,6 +21,13 @@
   "vitest": {
     "pool": "forks"
   },
+  "noise": [
+    "logging",
+    "errorMessage",
+    "catchOnly",
+    "jsxAttribute"
+  ],
+  "escalate": "noCoverage",
   "lanes": {
     "unit": {
       "timeoutMs": 3000

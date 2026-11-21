@@ -28,7 +28,7 @@ Where the [mutation-testing report schema](https://github.com/stryker-mutator/mu
 | Unit lane | The lane whose specs are found through imports, using the package's own config. Runs first for every kept file. |
 | E2e lane | A lane whose specs boot the application in the test process and are found by a spec mapping, a command, or e2e specs that import the file. Runs for files the unit lane left untested, unless `--lanes` asks for every file. |
 | Fallback | The rule that sends a file with no specs in one lane to the next configured lane. The report lists such files under "checked by a later lane". |
-| Escalation | The optional rule that also retries a lane's survivors in the next lane. Not built yet. |
+| Escalation | The optional rule that retries the unit lane's survivors (`noCoverage` ones, or all with `survivors`) on their lines in the next lane with specs for the file. A survivor killed there is "killed in a later lane", not a finding. Off by default (`untested`). |
 | Spec mapping | A client-configured list of regex-to-glob pairs on the repo-relative path, or a command, that names a lane's specs for a file. |
 | Per-worker env | Environment variables set inside each engine worker, before the package's config loads, with `{worker}` replaced by the worker id, so parallel workers can get distinct resources without the tool knowing what they are. |
 | Prepare | A client command run once in a package before a lane's engine run, for projects whose tests consume built packages. |
@@ -70,9 +70,11 @@ Where the [mutation-testing report schema](https://github.com/stryker-mutator/mu
 | Survivor | A mutant with verdict survived or no coverage, after suppressions. The unit a consumer acts on. Carries the lane it survived in. |
 | Weak assertion | A survivor whose line is covered: tests reach it and none notices the change. |
 | Static survivor | A surviving static mutant: every test ran against it and none failed. Neither covered nor uncovered in the per-test sense. |
-| Noise class | A heuristic label on a survivor that makes it unlikely to matter: `logging`, `errorMessage`, `catchOnly`, `jsxAttribute`. Hidden by default, listed in a count. |
-| Suppression | A record that a survivor was accepted (equivalent, or deliberately untested), with a reason and date. A matching mutant is ignored in later runs. |
-| Mutant key | The identity used by suppressions: repo, file, mutator or `model`, and a hash of original and replacement text. Line numbers are not part of it. |
+| Noise class | A label on a survivor that makes it unlikely to matter, from where it sits in the source: `logging` (inside a logging call), `errorMessage` (the first argument of an error thrown directly, `throw new XError(...)`), `catchOnly` (inside a catch block that only logs and rethrows the caught error), `jsxAttribute` (a literal attribute value, or a `className`, `class` or `style` expression). Nothing inside a function is noise for sitting in an attribute or an error. The nearest one wins. Hidden from findings by default, listed with its class. |
+| Suppression | A record that a survivor or untested file was accepted (equivalent, or deliberately untested), with a reason and date, per repository, written by `weakspot accept`. A matching mutant still runs; it is listed as accepted, not as a finding. |
+| Survivor id | A survivor's id across runs: file, mutator and a hash of its enclosing function's name with the original and replacement text, without the line, so it survives edits elsewhere in the file and moves within the function; renaming the function changes it. `<file>#untested` for an untested file. |
+| Import-only spec edit | A change to a spec whose added lines and removed hunks are all import declarations or blank lines. It changes no test, so the changed-spec rule ignores it. Removing a test is never import-only. |
+| Mutant key | The identity used by suppressions: the repository plus the survivor id (file, mutator or `model`, and a hash of the enclosing function's name with the original and replacement text). Line numbers are not part of it. |
 | Equivalent mutant | A mutant that cannot change observable behaviour, so no test can kill it. Judged by a consumer, recorded as a suppression. |
 | Finding | A survivor expressed for a consumer: location, claim, evidence, severity. Severity is `medium` for both untested files and weak assertions unless the consumer raises it. |
 | Warning | Something that went wrong without stopping the run, listed in the report: a target that produced no mutants, for example. |

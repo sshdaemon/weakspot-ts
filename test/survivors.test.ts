@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import type { Mutant } from '../src/mutation/types.ts';
 import { findingsOf, survivorsOf, uninstrumentedFiles, untestedFindings } from '../src/report/survivors.ts';
+import { survivorId } from '../src/report/suppressions.ts';
 
 const mutant = (over: Partial<Mutant>): Mutant => ({
   id: 'src/a.ts#1',
@@ -10,6 +11,7 @@ const mutant = (over: Partial<Mutant>): Mutant => ({
   mutator: 'ConditionalExpression',
   start: { line: 2, column: 5 },
   end: { line: 2, column: 9 },
+  original: 'x',
   replacement: 'true',
   status: 'Survived',
   statusReason: '',
@@ -49,4 +51,11 @@ test('untested findings name the lanes that ran', () => {
   assert.match(both.evidence, /^no unit spec in the package imports the file .*; the e2e lane's spec sources name none$/);
   assert.equal(untestedFindings(files, () => ['e2e'])[0]!.evidence, "the e2e lane's spec sources name none");
   assert.match(untestedFindings(files)[0]!.evidence, /^no unit spec in the package imports the file/);
+});
+
+test('noise: survivors keep their label and stay out of the findings', () => {
+  const ms = [mutant({ id: 'a' }), mutant({ id: 'b' })];
+  const out = survivorsOf(ms, (m) => (m.id === 'b' ? 'logging' : undefined));
+  assert.deepEqual(out.map((s) => s.noise), [undefined, 'logging']);
+  assert.deepEqual(findingsOf(out).map((f) => f.id), [survivorId(ms[0]!)]);
 });

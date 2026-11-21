@@ -26,6 +26,10 @@ export interface Mutant {
   readonly mutator: string;
   readonly start: Position;
   readonly end: Position;
+  /** The source text the mutant replaces. */
+  readonly original: string;
+  /** Enclosing named functions and classes, outermost first, dot-joined; set for survivors once the source is read. */
+  readonly scope?: string;
   readonly replacement: string;
   readonly status: MutantStatus;
   readonly statusReason: string;
@@ -36,10 +40,18 @@ export interface Mutant {
   readonly killedBy: readonly string[];
 }
 
+/** A mutant's exact span, as the report gives it: 1-based lines and columns, end exclusive. */
+export interface Span {
+  readonly start: Position;
+  readonly end: Position;
+}
+
 export interface Target {
   /** Repo-relative path. */
   readonly file: string;
   readonly ranges: readonly LineRange[] | 'whole';
+  /** When set, only mutants inside these spans run; escalation uses it to retry exact survivors. */
+  readonly spans?: readonly Span[];
 }
 
 /**

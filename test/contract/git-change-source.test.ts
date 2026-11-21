@@ -25,7 +25,7 @@ test('git change source: committed, staged and working scopes against a base bra
     git(dir, 'commit', '-q', '-am', 'change');
     const src = new GitChangeSource();
     const committed = src.changes({ repoRoot: dir, base: 'main', scope: 'committed' });
-    assert.deepEqual(committed, [{ path: 'a.ts', status: 'modified', ranges: [{ start: 2, end: 2 }, { start: 5, end: 5 }] }]);
+    assert.deepEqual(committed, [{ path: 'a.ts', status: 'modified', ranges: [{ start: 2, end: 2 }, { start: 5, end: 5 }], removed: ['l2'] }]);
     writeFileSync(path.join(dir, 'b.ts'), 'new\n');
     git(dir, 'add', 'b.ts'); // staged new file
     writeFileSync(path.join(dir, 'a.ts'), 'l1\nL2\nl3\nl4\nl5\nl6\n'); // unstaged add line 6
@@ -78,7 +78,7 @@ test('git change source: a moved file with one edit yields only the edited line,
     git(dir, 'add', '.');
     git(dir, 'commit', '-q', '-m', 'move');
     const out = new GitChangeSource().changes({ repoRoot: dir, base: 'main', scope: 'committed' });
-    assert.deepEqual(out, [{ path: 'moved.ts', status: 'modified', ranges: [{ start: 21, end: 21 }] }]);
+    assert.deepEqual(out, [{ path: 'moved.ts', status: 'modified', ranges: [{ start: 21, end: 21 }], removed: ['export const v20 = 20;'] }]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -98,10 +98,27 @@ test('git change source: inter-hunk context config and GIT_DIFF_OPTS do not wide
     writeFileSync(path.join(dir, 'a.ts'), 'L1\nl2\nl3\nL4\n');
     git(dir, 'commit', '-q', '-am', 'two edits');
     const out = new GitChangeSource().changes({ repoRoot: dir, base: 'main', scope: 'committed' });
-    assert.deepEqual(out, [{ path: 'a.ts', status: 'modified', ranges: [{ start: 1, end: 1 }, { start: 4, end: 4 }] }]);
+    assert.deepEqual(out, [{ path: 'a.ts', status: 'modified', ranges: [{ start: 1, end: 1 }, { start: 4, end: 4 }], removed: ['l1', 'l4'] }]);
   } finally {
     if (previous === undefined) delete process.env['GIT_DIFF_OPTS'];
     else process.env['GIT_DIFF_OPTS'] = previous;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('git change source: a file that only lost lines comes back with no ranges and the removed text', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'weakspot-git-'));
+  try {
+    git(dir, 'init', '-q', '-b', 'main');
+    writeFileSync(path.join(dir, 'a.test.ts'), "import { a } from './a';\n\ntest('a', () => {});\ntest('b', () => {});\n");
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-q', '-m', 'base');
+    git(dir, 'checkout', '-q', '-b', 'feature');
+    writeFileSync(path.join(dir, 'a.test.ts'), "import { a } from './a';\n\ntest('a', () => {});\n");
+    git(dir, 'commit', '-q', '-am', 'drop a test');
+    const out = new GitChangeSource().changes({ repoRoot: dir, base: 'main', scope: 'committed' });
+    assert.deepEqual(out, [{ path: 'a.test.ts', status: 'modified', ranges: [], removed: ["test('b', () => {});"] }]);
+  } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });

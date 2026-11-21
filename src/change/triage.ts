@@ -26,6 +26,7 @@ export function triage(files: readonly ChangedFile[], skip: readonly string[] = 
     if (isAnySpec(file.path, patterns)) return { file, kept: false, fileClass, reason: 'spec file' };
     const hit = skipPatterns.find((p) => p.test(file.path));
     if (hit) return { file, kept: false, fileClass, reason: `matches skip pattern ${hit.source}` };
+    if (file.ranges !== 'whole' && file.ranges.length === 0) return { file, kept: false, fileClass, reason: 'only lines removed, nothing to mutate' };
     return { file, kept: true, fileClass, reason: '' };
   });
 }

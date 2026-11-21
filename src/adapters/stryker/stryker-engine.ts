@@ -7,7 +7,7 @@ import { escapeGlob } from '../../change/glob.ts';
 import { repoRelative } from '../../change/paths.ts';
 import { LineRange } from '../../change/ranges.ts';
 import type { LineRange as Range } from '../../change/types.ts';
-import type { EngineRunOptions, EngineRunResult, Mutant, MutantStatus, PackagePlan } from '../../mutation/types.ts';
+import type { EngineRunOptions, EngineRunResult, Mutant, MutantStatus, PackagePlan, Span } from '../../mutation/types.ts';
 import type { MutationEngine } from '../../ports/mutation-engine.ts';
 import type { TestRunner } from '../../ports/test-runner.ts';
 
@@ -23,7 +23,7 @@ interface StrykerMutant {
   static?: boolean;
 }
 interface StrykerReport {
-  files: Record<string, { mutants: StrykerMutant[] }>;
+  files: Record<string, { source?: string; mutants: StrykerMutant[] }>;
   testFiles?: Record<string, { tests: unknown[] }>;
 }
 
@@ -74,7 +74,7 @@ export class StrykerEngine implements MutationEngine {
     const logPath = path.join(dir, 'stryker.log');
     const config = {
       ...runner.engineConfig(shimPath),
-      mutate: plan.targets.flatMap((t) => mutatePatterns(repoRelative(plan.pkg.dir, path.join(opts.repoRoot, t.file)), t.ranges)),
+      mutate: plan.targets.flatMap((t) => mutatePatterns(repoRelative(plan.pkg.dir, path.join(opts.repoRoot, t.file)), t.ranges, t.spans)),
       mutator: { excludedMutations: [...opts.excludedMutations] },
       checkers: [],
       reporters: ['json'],
@@ -132,6 +132,7 @@ export class StrykerEngine implements MutationEngine {
     const mutants: Mutant[] = [];
     for (const [file, entry] of Object.entries(report.files)) {
       const repoRel = repoRelative(opts.repoRoot, path.resolve(plan.pkg.dir, file));
+      const lines = (entry.source ?? '').split('\n');
       for (const m of entry.mutants) {
         mutants.push({
           id: `${repoRel}#${plan.lane.name}#${m.id}`,
@@ -140,6 +141,7 @@ export class StrykerEngine implements MutationEngine {
           mutator: m.mutatorName,
           start: m.location.start,
           end: m.location.end,
+          original: textAt(lines, m.location.start, m.location.end),
           replacement: m.replacement ?? '',
           status: m.status,
           statusReason: m.statusReason ?? '',
@@ -158,9 +160,22 @@ export class StrykerEngine implements MutationEngine {
  * Stryker matches `mutate` entries as globs and turns backslashes into slashes, so `[id]` route
  * folders are escaped with bracket classes (`[[]id[]]`). Exported for its unit test.
  */
-export function mutatePatterns(file: string, ranges: readonly Range[] | 'whole'): string[] {
+/**
+ * Stryker mutate patterns: the file, glob characters escaped, with line ranges or, given spans, exact
+ * column ranges. Stryker reads `file:line:column-line:column` with 1-based lines and 0-based columns,
+ * one less than the report's columns.
+ */
+export function mutatePatterns(file: string, ranges: readonly Range[] | 'whole', spans?: readonly Span[]): string[] {
   const escaped = escapeGlob(file);
+  if (spans) return spans.map((s) => `${escaped}:${s.start.line}:${s.start.column - 1}-${s.end.line}:${s.end.column - 1}`);
   return ranges === 'whole' ? [escaped] : ranges.map((r) => `${escaped}:${LineRange.format(r)}`);
+}
+
+/** The text between two report positions: lines 1-based, columns 1-based with the end exclusive. */
+export function textAt(lines: readonly string[], start: { line: number; column: number }, end: { line: number; column: number }): string {
+  if (start.line === end.line) return (lines[start.line - 1] ?? '').slice(start.column - 1, end.column - 1);
+  const middle = lines.slice(start.line, end.line - 1);
+  return [(lines[start.line - 1] ?? '').slice(start.column - 1), ...middle, (lines[end.line - 1] ?? '').slice(0, end.column - 1)].join('\n');
 }
 
 /**

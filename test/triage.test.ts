@@ -43,3 +43,9 @@ test('triage drops specs by the configured patterns, so a custom spec name is no
     ['src/foo.ts', true, ''],
   ]);
 });
+
+test('a source that only lost lines has nothing to mutate', () => {
+  const [d] = triage([{ path: 'src/a.ts', status: 'modified', ranges: [], removed: ['const x = 1;'] }]);
+  assert.equal(d!.kept, false);
+  assert.equal(d!.reason, 'only lines removed, nothing to mutate');
+});

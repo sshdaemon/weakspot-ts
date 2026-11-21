@@ -12,6 +12,8 @@ export interface ChangedFile {
   readonly path: string;
   readonly status: FileStatus;
   readonly ranges: readonly LineRange[] | 'whole';
+  /** The text of each hunk's removed lines, one entry per hunk that removed any; from a diff only. */
+  readonly removed?: readonly string[];
 }
 
 export type FileClass = 'logic' | 'component';

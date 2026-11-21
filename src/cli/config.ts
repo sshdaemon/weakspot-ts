@@ -4,6 +4,8 @@ import path from 'node:path';
 import { DEFAULT_SPEC_PATTERNS, type SpecPatterns } from '../change/spec-kind.ts';
 import { DEFAULT_SKIP } from '../change/triage.ts';
 import { UNIT_TEST_CONFIGS } from '../adapters/fs/package-locator.ts';
+import { ESCALATE_MODES, type EscalateMode } from '../mutation/escalation.ts';
+import { NOISE_CLASSES, type NoiseClass } from '../report/types.ts';
 
 /** How a lane names the specs for a file. Several may be listed; the first that yields specs wins. */
 export type SpecSource = 'imports' | { readonly map: readonly (readonly [string, string])[] } | { readonly command: string };
@@ -32,6 +34,10 @@ export interface ToolConfig extends SpecPatterns {
   readonly vitest: Record<string, unknown>;
   /** The unit lane first, then the client's lanes in the order they fall back to each other. */
   readonly lanes: readonly LaneConfig[];
+  /** Noise classes whose survivors are kept out of the findings. */
+  readonly noise: readonly NoiseClass[];
+  /** Which unit-lane survivors, if any, are retried in the next lane. */
+  readonly escalate: EscalateMode;
 }
 
 export const UNIT_LANE = 'unit';
@@ -46,6 +52,8 @@ export const DEFAULTS: ToolConfig = {
   ...LIMITS,
   vitest: {},
   lanes: [{ name: UNIT_LANE, specs: ['imports'], envPerWorker: {}, ...LIMITS }],
+  noise: NOISE_CLASSES,
+  escalate: 'untested',
 };
 
 export class ConfigError extends Error {
@@ -103,7 +111,21 @@ export function validate(raw: unknown, source: string): ToolConfig {
     concurrency: positiveInt(user['concurrency'], 'concurrency', source) ?? DEFAULTS.concurrency,
     vitest: { ...DEFAULTS.vitest, ...(vitest as Record<string, unknown> | undefined) },
   };
-  return { ...top, lanes: lanes(user['lanes'], top, source) };
+  return { ...top, lanes: lanes(user['lanes'], top, source), noise: noiseClasses(user['noise'], source), escalate: escalateMode(user['escalate'], 'escalate', source) };
+}
+
+export function escalateMode(raw: unknown, name: string, source: string): EscalateMode {
+  if (raw === undefined) return DEFAULTS.escalate;
+  if (typeof raw !== 'string' || !(ESCALATE_MODES as readonly string[]).includes(raw)) throw new ConfigError(`${source}: ${name} must be one of ${ESCALATE_MODES.join(', ')}, got ${JSON.stringify(raw)}`);
+  return raw as EscalateMode;
+}
+
+function noiseClasses(raw: unknown, source: string): NoiseClass[] {
+  const list = stringList(raw, 'noise', source);
+  if (!list) return [...NOISE_CLASSES];
+  const unknown = list.find((n) => !(NOISE_CLASSES as readonly string[]).includes(n));
+  if (unknown) throw new ConfigError(`${source}: noise class ${JSON.stringify(unknown)} is not one of ${NOISE_CLASSES.join(', ')}`);
+  return list as NoiseClass[];
 }
 
 type Limits = { timeoutMs: number; concurrency: number };
