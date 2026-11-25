@@ -440,6 +440,10 @@ function buildReport(input: PipelineInput, run: RunOutcome): Report {
   const untestedRanges = new Map(
     lanes.untested.filter((f) => !acceptedById.has(untestedId(f))).map((f) => [f, input.changed.find((c) => c.path === f)?.ranges ?? 'whole'] as const),
   );
+  // Findings first: explaining an untested file may be what first reads a lane's map, and with it its warning.
+  const selected = (input.lanes ?? []).filter((l) => lanes.selected.includes(l.config.name));
+  const findings = [...untestedFindings(untestedRanges, (f) => lanes.tried.get(f) ?? lanes.selected, (f) => explanations(input, selected, f)), ...findingsOf(survivors)];
+  warnings.push(...selected.flatMap((l) => l.finder.warnings?.() ?? []));
   const summary = (r: EngineRunResult, plan: PackagePlan, escalated: boolean): PackageSummary => ({
     lane: plan.lane.name,
     escalated,
@@ -476,8 +480,22 @@ function buildReport(input: PipelineInput, run: RunOutcome): Report {
     survivors,
     killedLater,
     accepted,
-    findings: [...untestedFindings(untestedRanges, (f) => lanes.tried.get(f) ?? lanes.selected), ...findingsOf(survivors)],
+    findings,
   };
+}
+
+/** What the run's later lanes' spec sources say about an untested file, such as specs of other packages that run it. */
+function explanations(input: PipelineInput, lanes: readonly PipelineLane[], file: string): string[] {
+  const pkgDir = packageFolderOf(input.repoRoot, file);
+  return lanes.flatMap((l) => l.finder.explain?.(input.repoRoot, file, pkgDir) ?? []);
+}
+
+/** The repo-relative folder of the nearest package.json above a file, whether or not it has a test config; `.` for the root. */
+function packageFolderOf(repoRoot: string, file: string): string {
+  for (let dir = path.dirname(file); dir !== '.' && dir !== ''; dir = path.dirname(dir)) {
+    if (existsSync(path.join(repoRoot, dir, 'package.json'))) return dir;
+  }
+  return '.';
 }
 
 /** Resolves and checks user-given paths: must exist and lie inside the repo. Returns repo-relative paths. */

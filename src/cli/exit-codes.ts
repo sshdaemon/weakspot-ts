@@ -9,6 +9,7 @@ import { MutantsFileError } from '../mutation/validate.ts';
 import { ChangeListError } from '../change/change-list.ts';
 import type { Report } from '../report/types.ts';
 import { ConfigError } from './config.ts';
+import { MapFailedError } from './map-command.ts';
 import { InterruptedError, UninstrumentedError, UsageError } from './pipeline.ts';
 
 /** What `weakspot` exits with. 0 and 1 are completed runs; consumers read the report for both. */
@@ -41,6 +42,7 @@ const KNOWN: readonly (readonly [ErrorClass, number])[] = [
   [EngineFailedError, EXIT.failed],
   [UninstrumentedError, EXIT.failed],
   [SandboxNotLoadedError, EXIT.failed],
+  [MapFailedError, EXIT.failed],
   [InterruptedError, EXIT.interrupted],
 ];
 

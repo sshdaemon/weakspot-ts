@@ -8,7 +8,7 @@ import { ESCALATE_MODES, type EscalateMode } from '../mutation/escalation.ts';
 import { NOISE_CLASSES, type NoiseClass } from '../report/types.ts';
 
 /** How a lane names the specs for a file. Several may be listed; the first that yields specs wins. */
-export type SpecSource = 'imports' | { readonly map: readonly (readonly [string, string])[] } | { readonly command: string };
+export type SpecSource = 'imports' | 'coverage' | { readonly map: readonly (readonly [string, string])[] } | { readonly command: string };
 
 export interface LaneConfig {
   readonly name: string;
@@ -61,6 +61,11 @@ export class ConfigError extends Error {
     super(message);
     this.name = 'ConfigError';
   }
+}
+
+/** The key a repository's configs, decisions, caches and maps are stored under: its origin's name, else the checkout folder's. */
+export function repoKeyOf(repoRoot: string, remoteName: string | undefined): string {
+  return remoteName ?? path.basename(repoRoot);
 }
 
 export function weakspotHome(): string {
@@ -163,7 +168,7 @@ function laneEntry(name: string, lane: Record<string, unknown>, earlier: readonl
   const twin = earlier.find((l) => l.config === config);
   if (twin) throw new ConfigError(`${source}: lanes.${name} and lanes.${twin.name} share the config ${JSON.stringify(config)}; each lane needs its own`);
   const specs = specSources(lane['specs'], `lanes.${name}.specs`, source);
-  if (specs.length === 0) throw new ConfigError(`${source}: lanes.${name}.specs is required ("imports", { "map": [[regex, glob]] } or { "command": "..." })`);
+  if (specs.length === 0) throw new ConfigError(`${source}: lanes.${name}.specs is required ("imports", "coverage", { "map": [[regex, glob]] } or { "command": "..." })`);
   return { name, config, specs, ...laneLimits(lane, `lanes.${name}`, top, source) };
 }
 
@@ -195,7 +200,7 @@ function specSources(raw: unknown, name: string, source: string): SpecSource[] {
   if (raw === undefined) return [];
   const list = Array.isArray(raw) ? raw : [raw];
   return list.map((item): SpecSource => {
-    if (item === 'imports') return 'imports';
+    if (item === 'imports' || item === 'coverage') return item;
     if (item && typeof item === 'object' && !Array.isArray(item)) {
       const o = item as Record<string, unknown>;
       if (Array.isArray(o['map'])) {
@@ -208,7 +213,7 @@ function specSources(raw: unknown, name: string, source: string): SpecSource[] {
       }
       if (typeof o['command'] === 'string' && o['command'].trim()) return { command: o['command'] };
     }
-    throw new ConfigError(`${source}: ${name} entries are "imports", { "map": [[regex, glob]] } or { "command": "..." }, got ${JSON.stringify(item)}`);
+    throw new ConfigError(`${source}: ${name} entries are "imports", "coverage", { "map": [[regex, glob]] } or { "command": "..." }, got ${JSON.stringify(item)}`);
   });
 }
 

@@ -16,14 +16,22 @@ export interface ShimOptions {
    * started, which is the mutation engine's sandbox copy of the package.
    */
   readonly root: string | 'cwd';
-  /** Spec paths relative to `root`. The only tests included. */
-  readonly include: readonly string[];
+  /** Spec paths relative to `root`, the only tests included; undefined keeps the package's own include. */
+  readonly include: readonly string[] | undefined;
   /** Set in the runner process before the package's config loads; `{worker}` becomes the worker id. */
   readonly env?: Readonly<Record<string, string>>;
   /** The engine's worker id variable; `0` when it is unset, as in a plain run. */
   readonly workerIdVariable?: string;
   /** Added to the engine's worker id, so `{worker}` is unique across every engine process of the run. */
   readonly workerOffset?: number;
+}
+
+export interface CoverageRunOptions {
+  /** Folder for the generated config and the raw record, outside the repo. */
+  readonly workDir: string;
+  /** The lane's per-worker env; `{worker}` becomes the runner's own worker id. */
+  readonly env: Readonly<Record<string, string>>;
+  readonly signal?: AbortSignal;
 }
 
 export interface RunOptions {
@@ -41,6 +49,11 @@ export interface TestRunner {
   writeShim(pkg: Package, opts: ShimOptions, outPath: string): string;
   /** The `testRunner` and plugin options for the mutation engine. */
   engineConfig(shimPath: string): Record<string, unknown>;
-  /** Runs the specs the shim includes once via the runner's CLI, in `cwd`. */
+  /**
+   * Runs the package's whole suite once, each spec file isolated, and records the modules each spec
+   * file executed (absolute spec path to absolute module ids). For the coverage map; optional per runner.
+   */
+  recordCoverage?(pkg: Package, opts: CoverageRunOptions): Promise<{ executed: Map<string, string[]>; result: RunResult }>;
+  /** Runs the specs the shim includes once via the runner's CLI, in `cwd`; a non-finite `timeoutMs` sets no limit. */
   run(pkg: Package, shimPath: string, cwd: string, timeoutMs: number, opts?: RunOptions): Promise<RunResult>;
 }

@@ -552,3 +552,51 @@ test('when the specs never loaded the instrumented copy, the error also names th
   );
 });
 
+
+test('later lanes\' spec sources add their warnings to the report and their explanations to untested findings', async () => {
+  const e2eConfig = validate({ lanes: { e2e: { config: 'vitest-e2e.config.ts', specs: 'coverage' } } }, 'test').lanes[1]!;
+  const finder = {
+    find: (_root: string, _pkg: Package, f: string): SpecSet => ({ file: f, specs: [], how: 'none' }),
+    explain: (_root: string, f: string, pkgDir: string) => (f === 'app/src/a.ts' ? `specs in lib run ${pkgDir}` : undefined),
+    warnings: () => ['the map is old'],
+  };
+  const { report } = await run([file('app/src/a.ts'), file('app/src/b.ts')], 'fallback', {}, {}, {}, { extra: { lanes: [{ config: e2eConfig, finder }] } });
+  assert.ok(report.warnings.includes('the map is old'));
+  const evidence = Object.fromEntries(report.findings.map((f) => [f.file, f.evidence]));
+  assert.match(evidence['app/src/a.ts']!, /; specs in lib run \.$/, 'the package folder comes from the nearest package.json, here none but the root');
+  assert.doesNotMatch(evidence['app/src/b.ts']!, /specs in lib/);
+});
+
+test('only the lanes the run selected explain or warn, and a warning raised while explaining still reaches the report', async () => {
+  const e2eConfig = validate({ lanes: { e2e: { config: 'vitest-e2e.config.ts', specs: 'coverage' } } }, 'test').lanes[1]!;
+  let loaded = false;
+  const finder = {
+    find: (_root: string, _pkg: Package, f: string): SpecSet => ({ file: f, specs: [], how: 'none' }),
+    explain: () => {
+      loaded = true;
+      return 'specs elsewhere run it';
+    },
+    warnings: () => (loaded ? ['the map is old'] : []),
+  };
+  const unitOnly = await run([file('lib/src/x.ts')], ['unit'], {}, {}, {}, { extra: { lanes: [{ config: e2eConfig, finder }] } });
+  assert.deepEqual([unitOnly.report.warnings, unitOnly.report.findings[0]!.evidence.includes('specs elsewhere')], [[], false], 'the e2e lane did not run, so it says nothing');
+  const all = await run([file('lib/src/x.ts')], 'fallback', {}, {}, {}, { extra: { lanes: [{ config: e2eConfig, finder }] } });
+  assert.ok(all.report.findings[0]!.evidence.endsWith('; specs elsewhere run it'));
+  assert.deepEqual(all.report.warnings, ['the map is old'], 'the warning raised while explaining is in the report');
+});
+
+test('an untested file\'s package for explanations is the folder of its nearest package.json, at any depth', async () => {
+  const e2eConfig = validate({ lanes: { e2e: { config: 'vitest-e2e.config.ts', specs: 'coverage' } } }, 'test').lanes[1]!;
+  mkdirSync(path.join(repo, 'lib/sub'), { recursive: true });
+  for (const dir of ['lib', 'lib/sub']) writeFileSync(path.join(repo, dir, 'package.json'), '{}');
+  const seen: Record<string, string> = {};
+  const finder = {
+    find: (_root: string, _pkg: Package, f: string): SpecSet => ({ file: f, specs: [], how: 'none' }),
+    explain: (_root: string, f: string, pkgDir: string) => {
+      seen[f] = pkgDir;
+      return undefined;
+    },
+  };
+  await run([file('lib/src/a.ts'), file('lib/sub/deep/b.ts')], 'fallback', {}, {}, {}, { extra: { lanes: [{ config: e2eConfig, finder }] } });
+  assert.deepEqual(seen, { 'lib/src/a.ts': 'lib', 'lib/sub/deep/b.ts': 'lib/sub' });
+});
