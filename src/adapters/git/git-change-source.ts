@@ -59,6 +59,16 @@ export class GitChangeSource implements ChangeSource {
     if (dirty.length > 0) throw new GitError(`the change list's ranges describe ${head.slice(0, 12)}, but these files have uncommitted edits: ${dirty.join(', ')}`);
   }
 
+  /** Refuses a path that is not the top of its checkout. */
+  checkTopOf(repoRoot: string): void {
+    this.checkTop(repoRoot);
+  }
+
+  /** The checked-out commit. */
+  head(repoRoot: string): string {
+    return this.git(repoRoot, ['rev-parse', 'HEAD'], `${repoRoot} has no commit checked out`).trim();
+  }
+
   defaultBase(repoRoot: string): string | undefined {
     try {
       const ref = this.git(repoRoot, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']).trim();

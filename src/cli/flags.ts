@@ -12,6 +12,8 @@ Commands
   files <path[:start-end]>...   mutate the given files (or line ranges)
   pr <number|url>               mutate what a pull request changed, in a worktree of its own at its head (needs gh)
   pr --clean                    remove the worktrees pr --keep left
+  map <lane>                    run a lane's whole suite once and store which specs run which source files,
+                                for a lane whose specs list "coverage"
   propose [<path[:start-end]>...]
                                 write placeholders.json for model-written mutants: the changed lines (or the given files)
                                 where an author may change a condition, loop header, call or returned value
@@ -68,7 +70,7 @@ export const OPTIONS = {
 
 export type Flags = ReturnType<typeof parseArgs<{ options: typeof OPTIONS; allowPositionals: true }>>['values'];
 
-const COMMANDS = new Set(['files', 'diff', 'pr', 'propose', 'run', 'accept']);
+const COMMANDS = new Set(['files', 'diff', 'pr', 'map', 'propose', 'run', 'accept']);
 
 /** Flags that only a run of operator mutants reads. */
 const ENGINE_ONLY = ['escalate', 'exclude', 'timeout-ms', 'concurrency'] as const;
@@ -82,6 +84,12 @@ export function checkUsage(command: string, rest: readonly string[], values: Fla
   }
   if (command === 'run') {
     checkRunUsage(rest, values);
+    return;
+  }
+  if (command === 'map') {
+    if (rest.length !== 1) throw new UsageError('map: give one lane name');
+    const others = Object.keys(values).filter((k) => !['repo', 'out', 'quiet'].includes(k));
+    if (others.length > 0) throw new UsageError(`map: ${others.map((k) => `--${k}`).join(', ')} do not apply`);
     return;
   }
   if (values.reason !== undefined || values.revoke) throw new UsageError('--reason and --revoke apply to accept only');

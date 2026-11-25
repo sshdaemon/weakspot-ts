@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { FsPackageLocator } from '../adapters/fs/package-locator.ts';
+import { FsPackageLocator, packagesWithConfig } from '../adapters/fs/package-locator.ts';
 import { CopySandboxFactory } from '../adapters/fs/copy-sandbox.ts';
+import { JsonCoverageMapStore } from '../adapters/fs/coverage-map-store.ts';
 import { JsonMutantCache } from '../adapters/fs/mutant-cache.ts';
 import { NodeModulesLinker } from '../adapters/fs/node-modules-linker.ts';
 import { JsonSuppressionStore } from '../adapters/fs/suppression-store.ts';
@@ -16,15 +17,16 @@ import { TsPlaceholderFinder } from '../adapters/ts/placeholder-finder.ts';
 import { TsSourceInspector } from '../adapters/ts/source-inspector.ts';
 import { VitestRunner } from '../adapters/vitest/vitest-runner.ts';
 import type { Report } from '../report/types.ts';
-import { loadConfig, weakspotHome } from './config.ts';
+import { loadConfig, repoKeyOf, weakspotHome } from './config.ts';
 import { readChangeList, repoRootOf } from './change-list-input.ts';
 import { diffPipelineInput } from './diff-command.ts';
 import { filesPipelineInput } from './files-command.ts';
 import { readMutantEntries, readPlaceholders, runMutants } from './mutants-command.ts';
+import { mapCommand, mapSummary, planMap } from './map-command.ts';
 import { cleanWorktrees, prCommand } from './pr-command.ts';
 import { PLACEHOLDERS_FILE, propose, proposeSummary } from './propose-command.ts';
 import { OPTIONS, USAGE, checkUsage, laneSelectionOf, scopeOf, withFlags, type Flags } from './flags.ts';
-import { exitCodeFor, exitCodeOf, messageFor } from './exit-codes.ts';
+import { EXIT, exitCodeFor, exitCodeOf, messageFor } from './exit-codes.ts';
 import { runPipeline, UsageError, type PipelineLane } from './pipeline.ts';
 
 /** Never throws: every failure is printed and mapped to an exit code (see EXIT). */
@@ -51,6 +53,7 @@ async function run(argv: string[]): Promise<number> {
   checkUsage(command, rest, values);
   if (command === 'accept') return accept(rest[0]!, values);
   if (command === 'run') return runCommand(argv, values);
+  if (command === 'map') return mapLane(rest[0]!, values);
 
   const log = values.quiet ? () => {} : (line: string) => process.stderr.write(`${line}\n`);
   const baseDir = values.repo ? path.resolve(values.repo) : process.cwd();
@@ -65,7 +68,7 @@ async function run(argv: string[]): Promise<number> {
   log(`repo: ${repoRoot} (config: ${source})`);
   const stamp = new Date().toISOString().replaceAll(/[:.]/g, '-');
   const out = values.out ? path.resolve(values.out) : path.join(weakspotHome(), 'runs', remote ?? path.basename(repoRoot), stamp);
-  const repoKey = remote ?? path.basename(repoRoot);
+  const repoKey = repoKeyOf(repoRoot, remote);
   const suppressions = { store: suppressionStore(), repoKey };
   const worktrees = path.join(weakspotHome(), 'worktrees', repoKey);
   if (command === 'pr' && values.clean) {
@@ -91,7 +94,7 @@ async function run(argv: string[]): Promise<number> {
     imports: importFinder,
     inspector: new TsSourceInspector(),
     suppressions,
-    lanes: extraLanes.map((l): PipelineLane => ({ config: l, finder: laneFinder(l, config, cacheDir, repoKey) })),
+    lanes: extraLanes.map((l): PipelineLane => ({ config: l, finder: laneFinder(l, config, cacheDir, repoKey, coverageMaps()) })),
     laneSelection,
     packages: new FsPackageLocator(extraLanes.map((l) => l.config!)),
     log,
@@ -120,6 +123,37 @@ async function run(argv: string[]): Promise<number> {
   return exitCodeOf(report);
 }
 
+/** `map <lane>`: the lane must list coverage, or the map would never be read. */
+async function mapLane(laneName: string, values: Flags): Promise<number> {
+  const log = values.quiet ? () => {} : (line: string) => process.stderr.write(`${line}\n`);
+  const repoRoot = values.repo ? path.resolve(values.repo) : new FsPackageLocator().repoRoot(process.cwd());
+  const git = new GitChangeSource();
+  // Map paths are relative to the top; a map made from a subfolder would be read by no run.
+  git.checkTopOf(repoRoot);
+  const remote = remoteRepoName(repoRoot);
+  const { config, source } = loadConfig(repoRoot, remote);
+  log(`repo: ${repoRoot} (config: ${source})`);
+  const { lane, repoKey, workDir } = planMap({ repoRoot, remote, config, laneName, out: values.out, home: weakspotHome(), now: new Date() });
+  const interrupt = new AbortController();
+  const done = await withSignals(interrupt, () =>
+    mapCommand({
+      repoRoot,
+      repoKey,
+      lane,
+      runner: new VitestRunner(config.vitest),
+      store: coverageMaps(),
+      patterns: config,
+      packages: packagesWithConfig(repoRoot, lane.config!),
+      head: git.head(repoRoot),
+      workDir,
+      log,
+      signal: interrupt.signal,
+    }),
+  );
+  process.stdout.write(`${mapSummary(done)}\n`);
+  return done.failed.length > 0 ? EXIT.failed : EXIT.clean;
+}
+
 /** Ctrl-C, SIGTERM and SIGHUP abort `interrupt` while `work` runs. */
 async function withSignals<T>(interrupt: AbortController, work: () => Promise<T>): Promise<T> {
   const onSignal = () => interrupt.abort();
@@ -146,7 +180,7 @@ async function runCommand(argv: string[], values: Flags): Promise<number> {
   const { config: loaded, source } = loadConfig(repoRoot, remote);
   const config = withFlags(loaded, values);
   log(`repo: ${repoRoot} (config: ${source})`);
-  const repoKey = remote ?? path.basename(repoRoot);
+  const repoKey = repoKeyOf(repoRoot, remote);
   const out = values.out ? path.resolve(values.out) : path.dirname(placeholdersPath);
   const interrupt = new AbortController();
   const started = Date.now();
@@ -170,6 +204,10 @@ async function runCommand(argv: string[], values: Flags): Promise<number> {
   }));
   process.stdout.write(`${summaryLine(report, Date.now() - started)}\nreport: ${path.join(out, 'report.md')}\n`);
   return exitCodeOf(report);
+}
+
+function coverageMaps(): JsonCoverageMapStore {
+  return new JsonCoverageMapStore(path.join(weakspotHome(), 'maps'));
 }
 
 function mutantCache(): JsonMutantCache {

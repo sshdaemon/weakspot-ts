@@ -314,7 +314,7 @@ test('run --mutants: each file runs its own specs in its own package, and a lane
   const runs: string[] = [];
   const shims = new Map<string, readonly string[]>();
   input.runner.writeShim = (_p, opts, outPath) => {
-    shims.set(outPath, opts.include);
+    shims.set(outPath, opts.include ?? []);
     return outPath;
   };
   input.runner.run = (pkg, shim, cwd) => {

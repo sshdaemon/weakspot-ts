@@ -36,8 +36,8 @@ export interface TriageDecision {
 export interface SpecSet {
   readonly file: string;
   readonly specs: readonly string[];
-  /** `map` and `command`: a lane's spec mapping or command named them. */
-  readonly how: 'explicit' | 'imports' | 'map' | 'command' | 'none';
+  /** `map` and `command`: a lane's spec mapping or command named them. `coverage`: the lane's coverage map. */
+  readonly how: 'explicit' | 'imports' | 'map' | 'command' | 'coverage' | 'none';
 }
 
 /** A directory with its own package.json and test config. */

@@ -20,14 +20,20 @@ function kindOf(m: Mutant): Survivor['kind'] {
 
 /**
  * One finding per file no lane reaches: the change is unchecked by any test the lanes know.
- * `lanesOf` names the lanes that looked for the file's specs; the evidence says only what ran.
+ * `lanesOf` names the lanes that looked for the file's specs; the evidence says only what ran, and
+ * `notesOf` adds what the spec sources know beyond that (specs of other packages that run the file).
  */
-export function untestedFindings(files: ReadonlyMap<string, readonly LineRange[] | 'whole'>, lanesOf: (file: string) => readonly string[] = () => ['unit']): Finding[] {
+export function untestedFindings(
+  files: ReadonlyMap<string, readonly LineRange[] | 'whole'>,
+  lanesOf: (file: string) => readonly string[] = () => ['unit'],
+  notesOf: (file: string) => readonly string[] = () => [],
+): Finding[] {
   return [...files].map(([file, ranges]) => {
     const lanes = lanesOf(file);
     const evidence = [
       ...(lanes.includes('unit') ? ['no unit spec in the package imports the file (a spec that mocks it or imports only its types does not count)'] : []),
       ...lanes.filter((l) => l !== 'unit').map((l) => `the ${l} lane's spec sources name none`),
+      ...notesOf(file),
     ].join('; ');
     const lines = ranges === 'whole' ? 0 : ranges.reduce((n, r) => n + r.end - r.start + 1, 0);
     const scope = ranges === 'whole' ? 'the whole file goes' : changedLines(lines);

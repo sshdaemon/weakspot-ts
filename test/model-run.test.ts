@@ -60,7 +60,7 @@ function harness(result: (text: string, kind: Kind) => Partial<RunResult>, canar
       const text = files.get(`${cwd}/src/a.ts`) ?? '';
       const written = Object.fromEntries([...files].filter(([k]) => k.startsWith(`${cwd}/`)).map(([k, v]) => [k.slice(cwd.length + 1), v]));
       const kind = kindOf(path.basename(shim));
-      calls.push({ shim: path.basename(shim), include: shims.get(shim)!.include, cwd: path.relative('/out', cwd), timeoutMs, env: opts?.env, text, written });
+      calls.push({ shim: path.basename(shim), include: shims.get(shim)!.include ?? [], cwd: path.relative('/out', cwd), timeoutMs, env: opts?.env, text, written });
       return Promise.resolve({ passed: 0, failed: 0, failedFiles: 0, timedOut: false, durationMs: 400, output: 'out', ...(kind === 'canary' ? canary : result(text, kind)) });
     },
   };

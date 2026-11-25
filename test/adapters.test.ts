@@ -38,6 +38,11 @@ test('shim source rebases aliases, strips dir/root/projects and disables the cac
   assert.match(src, /include: \["src\/a\.test\.ts"\]/);
   const fixed = shimSource({ dir: '/repo/app', name: 'app', testConfig: '/repo/app/vitest.config.ts' }, { root: '/sandbox', include: [] });
   assert.match(fixed, /const root = "\/sandbox"/);
+  assert.match(fixed, /coverage: \{ enabled: false \}, cache: false, fsModuleCache: false \};/, 'no coverage and no isolate override for a mutation run');
+  const mapped = shimSource({ dir: '/repo/app', name: 'app', testConfig: '/repo/app/vitest.config.ts' }, { root: '/repo/app', include: undefined, coverageProvider: '/tool/map-provider.mjs' });
+  assert.doesNotMatch(mapped, /include:/, 'the package\'s own include stays');
+  assert.match(mapped, /coverage: \{ enabled: true, provider: 'custom', customProviderModule: "\/tool\/map-provider\.mjs", reportOnFailure: true, clean: false \}/);
+  assert.match(mapped, /fsModuleCache: false, isolate: true, fileParallelism: false \};/, 'each spec file isolated, one at a time');
 });
 
 test('config validation names the bad field', () => {

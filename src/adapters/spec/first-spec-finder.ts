@@ -16,4 +16,12 @@ export class FirstSpecFinder implements SpecFinder {
     }
     return { file, specs: [], how: 'none' };
   }
+
+  explain(repoRoot: string, file: string, pkgDir: string): string | undefined {
+    return this.finders.map((f) => f.explain?.(repoRoot, file, pkgDir)).find(Boolean);
+  }
+
+  warnings(): string[] {
+    return this.finders.flatMap((f) => f.warnings?.() ?? []);
+  }
 }

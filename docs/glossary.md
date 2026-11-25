@@ -17,7 +17,7 @@ Where the [mutation-testing report schema](https://github.com/stryker-mutator/mu
 | Skip pattern | A regular expression on the repo-relative path. A match drops the file from mutation. Configurable. |
 | Class | Either `logic` or `component` (a `.tsx` file). Both are mutated; the class steers noise classes only. |
 | Spec | A test file. Which names are unit specs and which are end-to-end specs comes from the `specPattern` and `e2ePattern` configuration. A spec that mocks a module or only imports its types is not that module's spec. |
-| Spec set | The specs a lane runs for a given source file: in the unit lane, the specs that import it, directly (depth 1) or through one intermediate file (depth 2), found by resolving the specs' imports with the TypeScript compiler, or named with `--specs`; in a later lane, what its spec mapping or command names. |
+| Spec set | The specs a lane runs for a given source file: in the unit lane, the specs that import it, directly (depth 1) or through one intermediate file (depth 2), found by resolving the specs' imports with the TypeScript compiler, or named with `--specs`; in a later lane, what its spec mapping, command or coverage map names. |
 | Depth | How many import hops between a spec and a source still count: 1 (the spec imports the file) or 2 (through one intermediate module). |
 | Scope | Which part of a local change `diff` reads: `working` (committed, staged, unstaged and untracked), `staged` (committed and the index) or `committed`. |
 | Untested | A changed file with an empty spec set in every lane that ran. Reported as a finding, not mutated. |
@@ -30,6 +30,8 @@ Where the [mutation-testing report schema](https://github.com/stryker-mutator/mu
 | Fallback | The rule that sends a file with no specs in one lane to the next configured lane. The report lists such files under "checked by a later lane". |
 | Escalation | The optional rule that retries the unit lane's survivors (`noCoverage` ones, or all with `survivors`) on their lines in the next lane with specs for the file. A survivor killed there is "killed in a later lane", not a finding. Off by default (`untested`). |
 | Spec mapping | A client-configured list of regex-to-glob pairs on the repo-relative path, or a command, that names a lane's specs for a file. |
+| Coverage map | Which of the repo's source files each spec of a lane ran a function of (a named function other than a class constructor or a transpiler helper named with a leading `_`; loading a module does not count), from one serial run of the lane's whole suite (`weakspot map <lane>`), stored per repository and lane with the commit it was made at. A lane reads it when its `specs` list `"coverage"`; only specs of the file's own package count. |
+| Map staleness | A map made at another commit than HEAD: still used, with a report warning saying how many commits and days old it is. Files it lacks fall back to the lane's next spec source. |
 | Per-worker env | Environment variables set inside each engine worker, before the package's config loads, with `{worker}` replaced by the worker id, so parallel workers can get distinct resources without the tool knowing what they are. |
 | Prepare | A client command run once in a package before a lane's engine run, for projects whose tests consume built packages. |
 
