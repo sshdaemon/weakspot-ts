@@ -97,8 +97,8 @@ export interface PackageSummary {
 
 /** What the run looked at: named files, or a diff against a base. */
 export interface ChangeSummary {
-  /** `changes`: a change list file the caller wrote. */
-  readonly kind: 'files' | 'diff' | 'changes';
+  /** `changes`: a change list file the caller wrote. `pr`: a pull request, checked in a worktree of its own. */
+  readonly kind: 'files' | 'diff' | 'changes' | 'pr';
   readonly detail: string;
 }
 

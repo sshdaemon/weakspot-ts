@@ -4,7 +4,10 @@ import { parseArgs } from 'node:util';
 import { FsPackageLocator } from '../adapters/fs/package-locator.ts';
 import { CopySandboxFactory } from '../adapters/fs/copy-sandbox.ts';
 import { JsonMutantCache } from '../adapters/fs/mutant-cache.ts';
+import { NodeModulesLinker } from '../adapters/fs/node-modules-linker.ts';
 import { JsonSuppressionStore } from '../adapters/fs/suppression-store.ts';
+import { GhPullRequestSource } from '../adapters/gh/gh-pull-request-source.ts';
+import { GitPullRequestCheckout } from '../adapters/git/pr-checkout.ts';
 import { GitChangeSource, remoteRepoName } from '../adapters/git/git-change-source.ts';
 import { laneFinder } from '../adapters/spec/lane-finder.ts';
 import { StrykerEngine } from '../adapters/stryker/stryker-engine.ts';
@@ -18,6 +21,7 @@ import { readChangeList, repoRootOf } from './change-list-input.ts';
 import { diffPipelineInput } from './diff-command.ts';
 import { filesPipelineInput } from './files-command.ts';
 import { readMutantEntries, readPlaceholders, runMutants } from './mutants-command.ts';
+import { cleanWorktrees, prCommand } from './pr-command.ts';
 import { PLACEHOLDERS_FILE, propose, proposeSummary } from './propose-command.ts';
 import { OPTIONS, USAGE, checkUsage, laneSelectionOf, scopeOf, withFlags, type Flags } from './flags.ts';
 import { exitCodeFor, exitCodeOf, messageFor } from './exit-codes.ts';
@@ -63,11 +67,18 @@ async function run(argv: string[]): Promise<number> {
   const out = values.out ? path.resolve(values.out) : path.join(weakspotHome(), 'runs', remote ?? path.basename(repoRoot), stamp);
   const repoKey = remote ?? path.basename(repoRoot);
   const suppressions = { store: suppressionStore(), repoKey };
+  const worktrees = path.join(weakspotHome(), 'worktrees', repoKey);
+  if (command === 'pr' && values.clean) {
+    const { removed, inUse } = cleanWorktrees(new GitPullRequestCheckout(), repoRoot, worktrees);
+    const busy = inUse.length > 0 ? `\nleft ${inUse.length} in use by a running weakspot pr${inUse.map((d) => `\n  ${d}`).join('')}` : '';
+    process.stdout.write(`removed ${removed.length} worktree(s)${removed.map((d) => `\n  ${d}`).join('')}${busy}\n`);
+    return 0;
+  }
 
   const interrupt = new AbortController();
   const started = Date.now();
   const cacheDir = path.join(weakspotHome(), 'cache');
-  const importFinder = new ImportSpecFinder(config.specDepth, config, 'unit', cacheDir);
+  const importFinder = new ImportSpecFinder(config.specDepth, config, 'unit', cacheDir, repoKey);
   const extraLanes = config.lanes.slice(1);
   const shared = {
     repoRoot,
@@ -80,7 +91,7 @@ async function run(argv: string[]): Promise<number> {
     imports: importFinder,
     inspector: new TsSourceInspector(),
     suppressions,
-    lanes: extraLanes.map((l): PipelineLane => ({ config: l, finder: laneFinder(l, config, cacheDir) })),
+    lanes: extraLanes.map((l): PipelineLane => ({ config: l, finder: laneFinder(l, config, cacheDir, repoKey) })),
     laneSelection,
     packages: new FsPackageLocator(extraLanes.map((l) => l.config!)),
     log,
@@ -90,6 +101,12 @@ async function run(argv: string[]): Promise<number> {
     specs: (values.specs ?? []).flatMap((s) => s.split(',')).filter(Boolean),
   };
   const source_ = new GitChangeSource();
+  if (command === 'pr') {
+    const pr = { ...shared, mainRoot: repoRoot, ref: rest[0]!, keep: values.keep ?? false, worktrees, prs: new GhPullRequestSource(), checkout: new GitPullRequestCheckout(), linker: new NodeModulesLinker(), source: source_ };
+    const done = await withSignals(interrupt, () => prCommand(pr));
+    process.stdout.write(`${summaryLine(done.report, Date.now() - started)}\nreport: ${path.join(out, 'report.md')}\n${values.keep ? `worktree: ${done.worktree}\nbase: ${done.pr.baseSha} (propose --repo ${done.worktree} --base ${done.pr.baseSha} offers the same lines)\n` : ''}`);
+    return exitCodeOf(done.report);
+  }
   const base = changeList?.list.base ?? values.base ?? config.base ?? source_.defaultBase(repoRoot);
   if (!named && !base) throw new UsageError('no base to compare with: pass --base <ref>, set "base" in the repo config, or set origin/HEAD (git remote set-head origin -a)');
   const input = named ? filesPipelineInput({ ...shared, files: rest }) : diffPipelineInput({ ...shared, source: source_, base: base!, scope: scopeOf(values), ...(changeList ? { changeList } : {}) });
@@ -98,15 +115,22 @@ async function run(argv: string[]): Promise<number> {
     process.stdout.write(`${proposeSummary(done.file, done.path)}\n`);
     return 0;
   }
-  const onSignal = () => interrupt.abort();
-  process.once('SIGINT', onSignal);
-  process.once('SIGTERM', onSignal);
-  const { report } = await runPipeline(input).finally(() => {
-    process.off('SIGINT', onSignal);
-    process.off('SIGTERM', onSignal);
-  });
+  const { report } = await withSignals(interrupt, () => runPipeline(input));
   process.stdout.write(`${summaryLine(report, Date.now() - started)}\nreport: ${path.join(out, 'report.md')}\n`);
   return exitCodeOf(report);
+}
+
+/** Ctrl-C, SIGTERM and SIGHUP abort `interrupt` while `work` runs. */
+async function withSignals<T>(interrupt: AbortController, work: () => Promise<T>): Promise<T> {
+  const onSignal = () => interrupt.abort();
+  // SIGHUP too: closing the terminal must still let a run clean up its worktree and sandboxes.
+  const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
+  for (const sig of signals) process.once(sig, onSignal);
+  try {
+    return await work();
+  } finally {
+    for (const sig of signals) process.off(sig, onSignal);
+  }
 }
 
 /** `run --mutants`: the repo and the default --out come from the placeholders file. */
@@ -125,11 +149,8 @@ async function runCommand(argv: string[], values: Flags): Promise<number> {
   const repoKey = remote ?? path.basename(repoRoot);
   const out = values.out ? path.resolve(values.out) : path.dirname(placeholdersPath);
   const interrupt = new AbortController();
-  const onSignal = () => interrupt.abort();
-  process.once('SIGINT', onSignal);
-  process.once('SIGTERM', onSignal);
   const started = Date.now();
-  const { report } = await runMutants({
+  const { report } = await withSignals(interrupt, () => runMutants({
     placeholders,
     placeholdersPath,
     mutantsPath,
@@ -146,10 +167,7 @@ async function runCommand(argv: string[], values: Flags): Promise<number> {
     commandLine: `weakspot ${argv.join(' ')}`,
     version: toolVersion(),
     signal: interrupt.signal,
-  }).finally(() => {
-    process.off('SIGINT', onSignal);
-    process.off('SIGTERM', onSignal);
-  });
+  }));
   process.stdout.write(`${summaryLine(report, Date.now() - started)}\nreport: ${path.join(out, 'report.md')}\n`);
   return exitCodeOf(report);
 }

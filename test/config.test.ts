@@ -4,7 +4,7 @@ import os, { cpus } from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { test } from 'vitest';
-import { remoteRepoName } from '../src/adapters/git/git-change-source.ts';
+import { ownerAndName, remoteRepoName } from '../src/adapters/git/git-change-source.ts';
 import { DEFAULTS, loadConfig } from '../src/cli/config.ts';
 
 test('loadConfig prefers the remote name, falls back to the folder name, then defaults', () => {
@@ -56,4 +56,19 @@ test('remoteRepoName reads the repository name from the common origin URL forms'
 test('defaults: concurrency is the core count capped at 8, and the unit lane carries the same limits', () => {
   assert.equal(DEFAULTS.concurrency, Math.max(1, Math.min(8, cpus().length)));
   assert.deepEqual(DEFAULTS.lanes, [{ name: 'unit', specs: ['imports'], envPerWorker: {}, timeoutMs: 3000, concurrency: DEFAULTS.concurrency }]);
+});
+
+test('ownerAndName: owner and name from every remote URL form, none without a slash', () => {
+  const cases: [string, string | undefined][] = [
+    ['git@github.com:sshdaemon/weakspot-ts.git', 'sshdaemon/weakspot-ts'],
+    ['https://github.com/acme/shop-api', 'acme/shop-api'],
+    ['https://github.com/acme/shop-api.git/', 'acme/shop-api'],
+    ['ssh://git@host:2222/org/name.git', 'org/name'],
+    ['https://gitlab.com/group/sub/name.git', 'sub/name'],
+    ['/srv/git/org/app.git', 'org/app'],
+    ['  https://github.com/org/app.git\n', 'org/app'],
+    ['app', undefined],
+    ['', undefined],
+  ];
+  for (const [url, expected] of cases) assert.equal(ownerAndName(url), expected, url);
 });

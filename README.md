@@ -6,7 +6,7 @@ A local tool for coding with LLM agents: a person or an agent runs it against a 
 
 ## What it does
 
-1. Takes a change: what differs from the base branch (`diff`), or files and line ranges you name (`files src/money.ts:12-40`).
+1. Takes a change: what differs from the base branch (`diff`), a pull request (`pr 123`), or files and line ranges you name (`files src/money.ts:12-40`).
 2. Drops files that hold no logic (DTOs, modules, barrels, migrations, specs), by configurable patterns.
 3. Finds the specs that constrain each file by resolving the specs' imports with the TypeScript compiler (so `paths` aliases count), within the file's own package, one hop by default, two with `--depth 2`; `--specs` overrides discovery. A spec that mocks a module with `vi.mock` or only imports its types is not that module's spec. A file with no unit spec goes to the next lane you configure, such as an end-to-end suite with a database per worker (see [Lanes](#lanes)), and is reported as untested, a finding rather than a mutant, only when no lane has a spec for it.
 4. A changed spec mutates the sources it imports, whole, against that spec: that is where "I added a test" claims get checked.
@@ -25,6 +25,7 @@ node bin/weakspot.js diff --staged --base origin/main
 node bin/weakspot.js files src/utils/money.ts
 node bin/weakspot.js files src/a.ts:10-40 src/b.ts --specs src/a.spec.ts
 node bin/weakspot.js diff --changes changes.json   # the files and lines another tool already chose
+node bin/weakspot.js pr 123                         # a pull request, in a worktree of its own (needs gh)
 node bin/weakspot.js propose --out /tmp/ws          # placeholders for model mutants, same change as diff
 node bin/weakspot.js run --mutants /tmp/ws/answers.json
 ```
@@ -47,6 +48,8 @@ node bin/weakspot.js run --mutants /tmp/ws/answers.json
 ```
 
 Paths are repo-relative, ranges inclusive and on the new side, `status` is `added`, `modified` or `renamed`. `removedLines` says whether the diff removed any line of the file; a file that only lost lines (a deleted test) is listed with `"ranges": []`, and a file that neither gained nor lost a line (a pure move) is left out. Mutants run on the files on disk, so `head` must be `working-tree`, or the commit that is checked out with none of the listed files edited since; a listed file that does not exist is an error. The list does not quote removed lines, so a spec that lost any counts as changed; one marked `"removedLines": false` whose added lines are all imports is skipped, as with `diff`; without the field, a spec always counts as changed. `--repo`, when given, must be the list's `repo`; `--base`, `--staged` and `--committed` do not apply.
+
+`pr <number or URL>` checks a pull request without touching your checkout. It reads the pull request with the GitHub CLI (`gh`, signed in), fetches its head and base from `origin`, makes a detached worktree at the head under `~/.weakspot/worktrees/<repo>/`, links each package's installed `node_modules` from your checkout into it (workspace packages point at the worktree's own copies), and runs the pipeline on the lines the pull request changes against the merge base with its base. The worktree is removed afterwards; `--keep` leaves it and prints its path and the base commit, so `propose --repo <that path> --base <that commit>` offers the same lines and `run --mutants` can follow. Runs without `--keep` each get a worktree of their own, so they never meet, and neither reuse nor `--clean` touches a worktree a running `pr` is using. The next `pr` for the same head reuses a kept worktree, refuses one with edits to tracked files (so nothing you wrote there is lost), and `pr --clean` removes the kept ones. `--repo` is the top of the checkout whose `origin` has the pull request; a URL of another repository is refused. So is a pull request whose lockfiles at its head differ from the ones installed in your checkout, since the linked dependencies would not match: install them in a checkout of its branch and use `diff` there. `--specs` paths read as for `diff` and must exist at the pull request's head. Packages whose tests import other packages' build output need a lane `prepare` to build it, as on a local run.
 
 Other options: `--repo`, `--changes`, `--specs`, `--depth`, `--lanes`, `--escalate`, `--out`, `--timeout-ms`, `--concurrency`, `--exclude`, `--quiet`. `node bin/weakspot.js --help` lists them. Paths are relative to the cwd, or to `--repo` when it is given. A path that does not exist or lies outside the repo is an error, not an untested file.
 
@@ -132,7 +135,7 @@ A model mutant has no per-test coverage: its file's specs all run, and `coveredB
 
 What a consumer (a review step, a script, an agent) can rely on. New fields may be added at any time; a field removed, renamed or changing meaning bumps `schemaVersion`.
 
-**Exit codes.** 0: the run completed with no findings. 1: it completed with findings in `report.json`. 2: the command line, the repo config, git, the change list, a placeholders or mutants file, or the accepted store was wrong, and nothing ran. 3: the run could not complete (tests fail before mutation, a prepare or spec command failed, the engine failed); the message names the log. 130: interrupted. Read 0 and 1 as a finished run.
+**Exit codes.** 0: the run completed with no findings. 1: it completed with findings in `report.json`. 2: the command line, the repo config, git, the change list, a placeholders or mutants file, a pull request (unreadable, of another repository, with lockfiles that differ from the installed ones, or a kept worktree with edits), or the accepted store was wrong, and nothing ran. 3: the run could not complete (tests fail before mutation, a prepare or spec command failed, the engine failed); the message names the log. 130: interrupted. Read 0 and 1 as a finished run.
 
 **`--out` layout** (default `~/.weakspot/runs/<repo>/<time>/`):
 
@@ -169,4 +172,4 @@ npm run test:contract # runs the fixture project through Vitest and Stryker (sec
 
 ## Status
 
-Phases 1 to 6: the `files`, `diff` (also from a change list), `accept`, `propose` and `run --mutants` commands, import-graph spec discovery with a parse cache, lanes with the fallback rule and escalation, noise classes, accepted survivors, model mutants with validation, a cache and a sandbox pool, a versioned report contract with exit codes and a progressive report, the Vitest adapter and the Stryker engine. Coming: PR input, a coverage map, a Jest adapter.
+Phases 1 to 7: the `files`, `diff` (also from a change list), `pr`, `accept`, `propose` and `run --mutants` commands, pull requests checked in a worktree with linked dependencies, import-graph spec discovery with a parse cache, lanes with the fallback rule and escalation, noise classes, accepted survivors, model mutants with validation, a cache and a sandbox pool, a versioned report contract with exit codes and a progressive report, the Vitest adapter and the Stryker engine. Coming: a coverage map, a Jest adapter.

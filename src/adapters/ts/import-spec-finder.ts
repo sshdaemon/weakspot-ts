@@ -29,8 +29,9 @@ class SpecifierCache {
   private readonly seen: Record<string, Specifiers> = {};
   parsed = 0;
 
-  constructor(cacheDir: string | undefined, pkgDir: string, kind: string) {
-    this.file = cacheDir && path.join(cacheDir, 'specifiers', `v${CACHE_VERSION}-${kind}-${createHash('sha1').update(pkgDir).digest('hex').slice(0, 16)}.json`);
+  /** `packageKey` names the package across checkouts of one repository, so a worktree shares its checkout's cache. */
+  constructor(cacheDir: string | undefined, packageKey: string, kind: string) {
+    this.file = cacheDir && path.join(cacheDir, 'specifiers', `v${CACHE_VERSION}-${kind}-${createHash('sha1').update(packageKey).digest('hex').slice(0, 16)}.json`);
     this.before = this.file ? readJson(this.file) : {};
   }
 
@@ -100,14 +101,17 @@ export class ImportSpecFinder implements SpecFinder, ImportsReader {
   private readonly patterns: SpecPatterns;
   private readonly kind: 'unit' | 'e2e';
   private readonly cacheDir: string | undefined;
+  private readonly cacheScope: string | undefined;
   private readonly indexes = new Map<string, PackageIndex>();
   private readonly resolvers = new Map<string, Resolver>();
 
-  constructor(depth = 1, patterns: SpecPatterns = DEFAULT_SPEC_PATTERNS, kind: 'unit' | 'e2e' = 'unit', cacheDir?: string) {
+  /** With `cacheScope` (the repository's key), the cache is per repository and package path, shared by its checkouts and worktrees; without it, per package folder. */
+  constructor(depth = 1, patterns: SpecPatterns = DEFAULT_SPEC_PATTERNS, kind: 'unit' | 'e2e' = 'unit', cacheDir?: string, cacheScope?: string) {
     this.depth = depth;
     this.patterns = patterns;
     this.kind = kind;
     this.cacheDir = cacheDir;
+    this.cacheScope = cacheScope;
   }
 
   /** Files parsed in this run rather than read from the cache, per package dir; for tests and the report. */
@@ -147,7 +151,7 @@ export class ImportSpecFinder implements SpecFinder, ImportsReader {
   importsOf(repoRoot: string, pkg: Package, absSpec: string): string[] {
     const realRoot = realpathSafe(repoRoot);
     const realPkg = realpathSafe(pkg.dir);
-    return resolveImports(absSpec, this.resolverFor(pkg))
+    return resolveImports(absSpec, this.resolverFor(realRoot, pkg))
       .imports.filter((p) => !isAnySpec(repoRelative(realRoot, p), this.patterns))
       .map((p) => (p === realPkg || p.startsWith(realPkg + path.sep) ? path.join(pkg.dir, path.relative(realPkg, p)) : p));
   }
@@ -183,7 +187,7 @@ export class ImportSpecFinder implements SpecFinder, ImportsReader {
   private indexFor(realRoot: string, pkg: Package): PackageIndex {
     let index = this.indexes.get(pkg.dir);
     if (index) return index;
-    const resolver = this.resolverFor(pkg);
+    const resolver = this.resolverFor(realRoot, pkg);
     const importers = new Map<string, Set<string>>();
     const specs = new Set<string>();
     const mocks = new Map<string, Set<string>>();
@@ -205,12 +209,13 @@ export class ImportSpecFinder implements SpecFinder, ImportsReader {
     return index;
   }
 
-  private resolverFor(pkg: Package): Resolver {
+  private resolverFor(realRoot: string, pkg: Package): Resolver {
     let resolver = this.resolvers.get(pkg.dir);
     if (!resolver) {
       const options = compilerOptions(pkg);
       const cache = ts.createModuleResolutionCache(pkg.dir, (f) => (ts.sys.useCaseSensitiveFileNames ? f : f.toLowerCase()), options);
-      resolver = { options, cache, specifiers: new SpecifierCache(this.cacheDir, pkg.dir, this.kind) };
+      const packageKey = this.cacheScope === undefined ? pkg.dir : `${this.cacheScope}\0${repoRelative(realRoot, realpathSafe(pkg.dir))}`;
+      resolver = { options, cache, specifiers: new SpecifierCache(this.cacheDir, packageKey, this.kind) };
       this.resolvers.set(pkg.dir, resolver);
     }
     return resolver;

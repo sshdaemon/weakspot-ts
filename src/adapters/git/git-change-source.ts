@@ -70,8 +70,7 @@ export class GitChangeSource implements ChangeSource {
   }
 
   private checkTop(repoRoot: string): void {
-    const top = realpathSync(this.git(repoRoot, ['rev-parse', '--show-toplevel']).trim());
-    if (top !== realpathSync(repoRoot)) throw new GitError(`${repoRoot} is not the top of its git checkout (${top}); git paths are relative to the top, so --repo must point there`);
+    checkTop(repoRoot, (args) => this.git(repoRoot, args));
   }
 
   private git(cwd: string, args: string[], failure?: string): string {
@@ -87,6 +86,17 @@ export class GitChangeSource implements ChangeSource {
 }
 
 /** The repository name from the origin URL (`owner/name` -> `name`), for configs shared by every checkout and worktree. */
+/** Refuses a path inside a checkout that is not its top: git paths are relative to the top. */
+export function checkTop(repoRoot: string, git: (args: string[]) => string): void {
+  const top = realpathSync(git(['rev-parse', '--show-toplevel']).trim());
+  if (top !== realpathSync(repoRoot)) throw new GitError(`${repoRoot} is not the top of its git checkout (${top}); git paths are relative to the top, so --repo must point there`);
+}
+
+/** The last two path parts of a remote URL (https, ssh, scp-like or a local path), without `.git`: `owner/name` on a forge. */
+export function ownerAndName(url: string): string | undefined {
+  return /[:/]([^/:]+\/[^/:]+?)(?:\.git)?\/?$/.exec(url.trim())?.[1];
+}
+
 export function remoteRepoName(repoRoot: string): string | undefined {
   try {
     const url = execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
