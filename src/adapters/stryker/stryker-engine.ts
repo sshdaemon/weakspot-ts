@@ -71,7 +71,7 @@ export class StrykerEngine implements MutationEngine {
         workerIdVariable: this.workerIdVariable,
         workerOffset: opts.workerOffset,
       },
-      path.join(dir, 'vitest.shim.mts'),
+      path.join(dir, 'runner.shim.mts'),
     );
     const links = directoryLinks(plan.pkg.dir);
     const warnings = links.other.map((rel) => `${repoRelative(opts.repoRoot, path.join(plan.pkg.dir, rel))}: link to a directory, left out of the mutation sandbox`);
@@ -82,7 +82,7 @@ export class StrykerEngine implements MutationEngine {
     const configPath = path.join(dir, 'stryker.config.json');
     const logPath = path.join(dir, 'stryker.log');
     const config = {
-      ...runner.engineConfig(shimPath),
+      ...runner.engineConfig(plan.pkg, shimPath),
       mutate: plan.targets.flatMap((t) => mutatePatterns(repoRelative(plan.pkg.dir, path.join(opts.repoRoot, t.file)), t.ranges, t.spans)),
       mutator: { excludedMutations: [...opts.excludedMutations] },
       checkers: [],

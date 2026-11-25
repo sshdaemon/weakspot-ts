@@ -6,6 +6,7 @@ import { isInside, repoRelative } from '../change/paths.ts';
 import { isAnySpec, type SpecPatterns } from '../change/spec-kind.ts';
 import type { Package } from '../change/types.ts';
 import type { CoverageMapStore } from '../ports/coverage-map-store.ts';
+import { UnsupportedByRunnerError } from '../adapters/runner-set.ts';
 import type { TestRunner } from '../ports/test-runner.ts';
 import { repoKeyOf, type LaneConfig, type ToolConfig } from './config.ts';
 import { InterruptedError, UsageError } from './pipeline.ts';
@@ -61,8 +62,12 @@ export interface MapOutcome {
  */
 export async function mapCommand(input: MapCommandInput): Promise<MapOutcome> {
   const { lane, runner, repoRoot } = input;
-  if (!runner.recordCoverage) throw new UsageError(`the ${runner.name} runner cannot record coverage, so it cannot make a map`);
   if (input.packages.length === 0) throw new UsageError(`no package in ${repoRoot} has ${lane.config}, the ${lane.name} lane's config`);
+  // Before any prepare: a package whose runner cannot record makes the whole map impossible.
+  if (!runner.recordCoverage) throw new UnsupportedByRunnerError(`the ${runner.name} runner cannot record what each spec ran, so no coverage map can be made`);
+  const refusals = input.packages.flatMap((p) => runner.coverageRefusal?.(p) ?? []);
+  if (refusals.length > 0) throw new UnsupportedByRunnerError(refusals.join('; '));
+  const record = runner.recordCoverage.bind(runner);
   const executed = new Map<string, string[]>();
   const mapped: Package[] = [];
   const failed: FailedPackage[] = [];
@@ -76,7 +81,7 @@ export async function mapCommand(input: MapCommandInput): Promise<MapOutcome> {
     input.log(`${lane.name} ${pkg.name}: running the whole suite`);
     // One package at a time: a lane's suites often share outside state, such as a database server.
     // oxlint-disable-next-line no-await-in-loop -- sequential on purpose, see above
-    const { executed: found, result } = await runner.recordCoverage(pkg, { workDir: path.join(input.workDir, repoRelative(repoRoot, pkg.dir) || 'root'), env: lane.envPerWorker, ...(input.signal ? { signal: input.signal } : {}) });
+    const { executed: found, result } = await record(pkg, { workDir: path.join(input.workDir, repoRelative(repoRoot, pkg.dir) || 'root'), env: lane.envPerWorker, ...(input.signal ? { signal: input.signal } : {}) });
     if (input.signal?.aborted) throw new InterruptedError();
     if (found.size === 0) {
       const why = result.output.trim().split('\n').slice(-6).join('\n') || 'no output';

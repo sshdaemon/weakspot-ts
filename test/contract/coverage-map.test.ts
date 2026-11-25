@@ -48,7 +48,12 @@ test('vitest records the files in which each spec file ran a function, a failing
     assert.equal(ran('src/loaded-domock.test.ts').includes('src/loaded.ts'), false, 'a module the spec mocks never ran');
     assert.ok(result.failed >= 1, 'the failing spec is reported as failing');
     assert.throws(() => packagesWithConfig(repo, 'vitest.config.ts'), /is not a git checkout/);
+    for (const f of ['test/jest-e2e.json', 'loose/test/jest-e2e.json', 'src/test/jest-e2e.json.bak']) {
+      mkdirSync(path.dirname(path.join(repo, f)), { recursive: true });
+      writeFileSync(path.join(repo, f), '{}');
+    }
     commit(repo);
+    assert.deepEqual(packagesWithConfig(repo, 'test/jest-e2e.json').map((p) => [p.dir, p.testConfig]), [[repo, path.join(repo, 'test/jest-e2e.json')]], 'a config path inside the package; a folder with no package.json is passed by');
     assert.deepEqual(packagesWithConfig(repo, 'vitest.config.ts').map((p) => [p.name, p.dir]), [['fixture-vitest-basic', repo]]);
   } finally {
     rmSync(repo, { recursive: true, force: true });

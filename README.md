@@ -1,6 +1,6 @@
 # weakspot-ts
 
-Mutation checks on the lines a change touched, for TypeScript projects tested with Vitest. It finds the places where tests run but constrain nothing, without a repo-wide mutation run and without touching the project.
+Mutation checks on the lines a change touched, for TypeScript projects tested with Vitest or Jest. It finds the places where tests run but constrain nothing, without a repo-wide mutation run and without touching the project.
 
 A local tool for coding with LLM agents: a person or an agent runs it against a change, reads the survivors, writes the missing tests. It makes no model calls of its own.
 
@@ -54,7 +54,9 @@ Paths are repo-relative, ranges inclusive and on the new side, `status` is `adde
 
 Other options: `--repo`, `--changes`, `--specs`, `--depth`, `--lanes`, `--escalate`, `--out`, `--timeout-ms`, `--concurrency`, `--exclude`, `--quiet`. `node bin/weakspot.js --help` lists them. Paths are relative to the cwd, or to `--repo` when it is given. A path that does not exist or lies outside the repo is an error, not an untested file.
 
-Needs Node 22.18 or later (the CLI runs the TypeScript sources directly) and a project on Vitest 5, the major this tool pins, configured through `vitest.config.*` or `vite.config.*`. A project on another Vitest major needs the pin in `package.json` changed to match, since Stryker's runner loads the tool's copy while the specs import the project's.
+Needs Node 22.18 or later (the CLI runs the TypeScript sources directly) and a project on Vitest 5, the major this tool pins, configured through `vitest.config.*` or `vite.config.*`, or on Jest. A project on another Vitest major needs the pin in `package.json` changed to match, since Stryker's runner loads the tool's copy while the specs import the project's.
+
+**Jest.** A package's runner follows its configs in this order: a `vitest.config.*` means Vitest, then a `jest.config.{ts,mts,cts,js,mjs,cjs,json}` or a `jest` key in its package.json means Jest, then a `vite.config.*` alone means Vitest (a Jest project may keep one for its build). The package's own Jest reads its config, as Jest itself does, and its own transform (babel-jest, ts-jest, @swc/jest) runs the specs; the tool only adds Stryker's Jest plugin. A lane's `config` may name any `jest*` file, such as Nest's `test/jest-e2e.json`. Paths in the config that lead outside the package, such as a monorepo root preset or setup file, keep pointing at the real files. Operator mutants, model mutants and PR mode work the same on Jest; `weakspot map` needs a Vitest package and refuses a Jest one before anything runs.
 
 ## Configure
 
@@ -80,7 +82,7 @@ A lane is one way of running tests against a package: a runner config, a way to 
 }
 ```
 
-- `config`: the lane's runner config file name inside each package. A file's package is the nearest directory up from it with a `package.json` and any configured config (the unit lane's or a lane's); a lane applies to the file only when that directory holds the lane's config, so a package with only an e2e config runs in the e2e lane alone, and a lane config in an ancestor package is not consulted.
+- `config`: the lane's runner config inside each package, a file name or a path from the package folder such as `test/jest-e2e.json`. A file's package is the nearest directory up from it with a `package.json` and any configured config (the unit lane's or a lane's); a lane applies to the file only when that directory has the lane's config at that path, so a package with only an e2e config runs in the e2e lane alone, and a lane config in an ancestor package is not consulted.
 - `specs`: how to find a file's specs, one source or a list tried in order: `"imports"` (specs matching `e2ePattern` that import the file), `{ "map": [[regex, glob]] }` (the first regex matching the repo-relative path fills `$1`.. in its glob, relative to the repo root), `{ "command": "..." }` (run through the shell in the repo root with the repo-relative path, already single-quoted, in place of `{file}`, or appended as the last argument; prints one repo-relative spec path per line; a non-zero exit fails the run), or `"coverage"` (the lane's coverage map, below). Only existing specs inside the file's package count.
 - `envPerWorker`: set in each engine worker before the package's config loads, with `{worker}` replaced by a small integer unique across every engine process of the run (packages and lanes run in parallel, each with its own workers). This is how parallel workers get distinct databases without the tool knowing what a database is. Lane concurrency is per package, so a run touching several packages opens that many times the workers.
 - `prepare`: run once in the package before the lane's engine run, for projects whose tests consume built packages.
@@ -148,7 +150,7 @@ What a consumer (a review step, a script, an agent) can rely on. New fields may 
 
 - `report.json`: the full report, written once at the end.
 - `report.md`: the same for a person. It is rewritten as each package run finishes, with an "In progress" line under the title, so it can be read while a slow lane runs; the final version has no such line. A run that fails after a package run finished leaves it with a "Stopped" line instead. Both reports from an earlier run into the same folder are removed when a run starts, so a failure never leaves an old report looking current.
-- `engine/<package>-<hash>-<lane>/`: one folder per package and lane: `stryker.config.json`, `stryker-report.json`, `stryker.log`, `vitest.shim.mts`, `weakspot-env.mjs`. `engine-escalated/` holds the retries in a later lane, in the same shape.
+- `engine/<package>-<hash>-<lane>/`: one folder per package and lane: `stryker.config.json`, `stryker-report.json`, `stryker.log`, `runner.shim.mts` (`runner.shim.mjs` for a Jest package), `weakspot-env.mjs`. `engine-escalated/` holds the retries in a later lane, in the same shape.
 - `placeholders.json` (from `propose`), `mutants.json` (the model mutants that ran, replayable) and `rejected.json` (answers that did not run, with the reason), and `model/<n>-<lane>/` with each worker's shims.
 
 **`report.json`** carries `schemaVersion` (1), the change, the packages run per lane, what was skipped and why, untested files, the survivors (with noise class, acceptance and escalation), `killedLater`, `accepted`, `model` once model mutants were merged in (the command, the two files and the rejections), and `findings`: what a consumer acts on. Each finding has:
@@ -172,11 +174,11 @@ Noise and accepted survivors are in `survivors` but never in `findings`.
 npm run typecheck
 npm run lint          # oxlint, rules in .oxlintrc.json
 npm test              # unit tests
-npm run test:contract # runs the fixture project through Vitest and Stryker (seconds)
+npm run test:contract # runs the fixture projects through Vitest, Jest and Stryker (seconds)
 ```
 
-`fixtures/vitest-basic` is a tiny project with one deliberately weak test, so the contract tests have known survivors to find. `fixtures/vitest-alias` is the same project with a function config and an absolute `@/` alias, the shape that once made every mutant survive.
+`fixtures/vitest-basic` is a tiny project with one deliberately weak test, so the contract tests have known survivors to find. `fixtures/vitest-alias` is the same project with a function config and an absolute `@/` alias, the shape that once made every mutant survive. `fixtures/jest-basic` is the weak-test project again on Jest, with a `jest.config.ts` and Babel, so both runners must give the same verdicts.
 
 ## Status
 
-Phases 1 to 8: the `files`, `diff` (also from a change list), `pr`, `map`, `accept`, `propose` and `run --mutants` commands, pull requests checked in a worktree with linked dependencies, a coverage map as a lane's spec source, import-graph spec discovery with a parse cache, lanes with the fallback rule and escalation, noise classes, accepted survivors, model mutants with validation, a cache and a sandbox pool, a versioned report contract with exit codes and a progressive report, the Vitest adapter and the Stryker engine. Coming: a Jest adapter.
+Phases 1 to 9: the `files`, `diff` (also from a change list), `pr`, `map`, `accept`, `propose` and `run --mutants` commands, pull requests checked in a worktree with linked dependencies, a coverage map as a lane's spec source, import-graph spec discovery with a parse cache, lanes with the fallback rule and escalation, noise classes, accepted survivors, model mutants with validation, a cache and a sandbox pool, a versioned report contract with exit codes and a progressive report, the Vitest and Jest adapters and the Stryker engine.

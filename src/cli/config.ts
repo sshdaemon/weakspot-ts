@@ -162,8 +162,10 @@ function unitEntry(lane: Record<string, unknown>, top: Limits, source: string): 
 /** A lane after the unit lane; `earlier` are the lanes already read, which may not share its config. */
 function laneEntry(name: string, lane: Record<string, unknown>, earlier: readonly LaneConfig[], top: Limits, source: string): LaneConfig {
   const config = optionalString(lane['config'], `lanes.${name}.config`, source);
-  if (!config) throw new ConfigError(`${source}: lanes.${name}.config is required (the runner config file name inside each package)`);
-  if (config.includes('/') || config.includes('\\')) throw new ConfigError(`${source}: lanes.${name}.config must be a file name, not a path`);
+  if (!config) throw new ConfigError(`${source}: lanes.${name}.config is required (the runner config file inside each package, such as vitest-e2e.config.ts or test/jest-e2e.json)`);
+  if (config.includes('\\') || path.posix.isAbsolute(config) || path.posix.normalize(config) !== config || config.split('/').includes('..')) {
+    throw new ConfigError(`${source}: lanes.${name}.config must be a plain path inside the package, such as test/jest-e2e.json`);
+  }
   if (UNIT_TEST_CONFIGS.includes(config)) throw new ConfigError(`${source}: lanes.${name}.config ${JSON.stringify(config)} is the unit lane's config; a lane needs its own`);
   const twin = earlier.find((l) => l.config === config);
   if (twin) throw new ConfigError(`${source}: lanes.${name} and lanes.${twin.name} share the config ${JSON.stringify(config)}; each lane needs its own`);

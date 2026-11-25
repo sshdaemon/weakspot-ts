@@ -178,7 +178,7 @@ function packageResolvers(input: PipelineInput): PackageResolvers {
   return {
     unit: (file) => {
       const pkg = packageOf(file);
-      return pkg && !laneConfigNames.has(path.basename(pkg.testConfig)) ? known(file, pkg) : undefined;
+      return pkg && !laneConfigNames.has(path.relative(pkg.dir, pkg.testConfig).split(path.sep).join('/')) ? known(file, pkg) : undefined;
     },
     lane: (lane, file) => {
       const pkg = packageOf(file);

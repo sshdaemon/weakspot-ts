@@ -15,9 +15,11 @@ import { StrykerEngine } from '../adapters/stryker/stryker-engine.ts';
 import { ImportSpecFinder } from '../adapters/ts/import-spec-finder.ts';
 import { TsPlaceholderFinder } from '../adapters/ts/placeholder-finder.ts';
 import { TsSourceInspector } from '../adapters/ts/source-inspector.ts';
+import { JestRunner } from '../adapters/jest/jest-runner.ts';
+import { RunnerSet } from '../adapters/runner-set.ts';
 import { VitestRunner } from '../adapters/vitest/vitest-runner.ts';
 import type { Report } from '../report/types.ts';
-import { loadConfig, repoKeyOf, weakspotHome } from './config.ts';
+import { loadConfig, repoKeyOf, weakspotHome, type ToolConfig } from './config.ts';
 import { readChangeList, repoRootOf } from './change-list-input.ts';
 import { diffPipelineInput } from './diff-command.ts';
 import { filesPipelineInput } from './files-command.ts';
@@ -88,7 +90,7 @@ async function run(argv: string[]): Promise<number> {
     baseDir,
     out,
     config,
-    runner: new VitestRunner(config.vitest),
+    runner: runnersFor(config),
     engine: new StrykerEngine(),
     specFinder: importFinder,
     imports: importFinder,
@@ -140,7 +142,7 @@ async function mapLane(laneName: string, values: Flags): Promise<number> {
       repoRoot,
       repoKey,
       lane,
-      runner: new VitestRunner(config.vitest),
+      runner: runnersFor(config),
       store: coverageMaps(),
       patterns: config,
       packages: packagesWithConfig(repoRoot, lane.config!),
@@ -191,7 +193,7 @@ async function runCommand(argv: string[], values: Flags): Promise<number> {
     entries,
     out,
     config,
-    runner: new VitestRunner(config.vitest),
+    runner: runnersFor(config),
     sandboxes: new CopySandboxFactory(),
     finder: new TsPlaceholderFinder(),
     inspector: new TsSourceInspector(),
@@ -204,6 +206,11 @@ async function runCommand(argv: string[], values: Flags): Promise<number> {
   }));
   process.stdout.write(`${summaryLine(report, Date.now() - started)}\nreport: ${path.join(out, 'report.md')}\n`);
   return exitCodeOf(report);
+}
+
+/** Vitest first, then Jest: each package runs on the first that knows its config. */
+function runnersFor(config: ToolConfig): RunnerSet {
+  return new RunnerSet([new VitestRunner(config.vitest), new JestRunner()]);
 }
 
 function coverageMaps(): JsonCoverageMapStore {
