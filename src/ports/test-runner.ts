@@ -3,6 +3,8 @@ import type { Package } from '../change/types.ts';
 export interface RunResult {
   readonly passed: number;
   readonly failed: number;
+  /** Spec files that failed without a failing test: they did not load, a hook threw, or an error went unhandled. */
+  readonly failedFiles: number;
   readonly timedOut: boolean;
   readonly durationMs: number;
   readonly output: string;
@@ -24,6 +26,13 @@ export interface ShimOptions {
   readonly workerOffset?: number;
 }
 
+export interface RunOptions {
+  /** Added to the runner process's environment, for example the worker id variable. */
+  readonly env?: Readonly<Record<string, string>>;
+  /** Aborting kills the runner process. */
+  readonly signal?: AbortSignal;
+}
+
 /** The test framework behind a package. Vitest today; the seam for Jest and others. */
 export interface TestRunner {
   readonly name: string;
@@ -32,6 +41,6 @@ export interface TestRunner {
   writeShim(pkg: Package, opts: ShimOptions, outPath: string): string;
   /** The `testRunner` and plugin options for the mutation engine. */
   engineConfig(shimPath: string): Record<string, unknown>;
-  /** Runs the given specs once, without mutation, via the runner's CLI. */
-  run(pkg: Package, shimPath: string, cwd: string, timeoutMs: number): Promise<RunResult>;
+  /** Runs the specs the shim includes once via the runner's CLI, in `cwd`. */
+  run(pkg: Package, shimPath: string, cwd: string, timeoutMs: number, opts?: RunOptions): Promise<RunResult>;
 }

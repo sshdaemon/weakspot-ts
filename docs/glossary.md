@@ -46,12 +46,16 @@ Where the [mutation-testing report schema](https://github.com/stryker-mutator/mu
 | Mutation engine | The component that instruments code, generates operator mutants and runs them with per-test coverage. StrykerJS today. |
 | Excluded mutations | Mutators switched off for a run, by name. Configurable. |
 | Placeholder | A code fragment on a changed line offered to an author for replacement: its location, kind, original text and surrounding context. |
-| Placeholder kind | One of `condition`, `loopHeader`, `callArguments`, `returnExpression`. The tool's own enum, not a parser's. |
+| Placeholder kind | One of `condition`, `loopHeader`, `callArguments`, `callee` (the function or method a call names), `returnExpression`, `statement` (an expression statement that is not a call, such as an assignment). The tool's own enum, not a parser's. |
+| Wide placeholder | One whose fragment holds a function or JSX. `propose` offers it only for a changed line no smaller placeholder covers. |
+| Placeholder id | `<file>#<kind>#<hash>` of the enclosing function's name and the original text, `~2` and on for repeats in one function. Without the line, so cached mutants still apply after edits elsewhere. |
+| Placeholders file | `placeholders.json`, what `propose` writes: the placeholders, the runs (lane, package, specs) for each file, a source excerpt per file and the author prompt. |
+| Cached mutant | A model mutant that passed validation in an earlier run, kept per repository by placeholder id; `propose` marks the placeholder and `run --mutants` reuses it unless the author answers that placeholder. |
 | Author | Whoever answers placeholders with model mutants: an agent in the session, or a person. Never the tool. |
-| Author prompt | The file in `docs/` that tells an author what to produce and how. |
-| Rejection | A submitted model mutant the tool refuses before running it, with a reason: does not parse, outside its placeholder, wrong kind, identical to the original, duplicate. |
+| Author prompt | `docs/mutant-author.md`, which tells an author what to produce and how; copied into every placeholders file. |
+| Rejection | A submitted model mutant the tool refuses before running it, with a reason: unknown placeholder, no reason given, more than three for a placeholder, identical to the original, duplicate, does not parse, outside its placeholder or of another kind, or the source changed since `propose`. Listed in `rejected.json`; the valid answers still run. |
 | Dry run | The run of the spec set before any mutation, to confirm it passes and to record which tests cover which lines. A failing dry run stops the pass. |
-| Sandbox | A copy of a package without `node_modules`, with `node_modules` linked back in, where a mutant is written and the spec set run. Never the real working tree. |
+| Sandbox | A copy of a package without `node_modules`, build output or caches, with `node_modules` linked back in, where a mutant is written and the spec set run. Never the real working tree. Model mutants use a pool of them, one per worker, each reused: write the mutant, run the file's specs, put the file back. |
 | Verdict | The outcome of running one mutant. One of the statuses below. |
 | Killed (schema) | At least one test failed with the mutant in place. |
 | Survived (schema) | Every covering test passed with the mutant in place. |
@@ -81,5 +85,5 @@ Where the [mutation-testing report schema](https://github.com/stryker-mutator/mu
 | Change list | A JSON file naming the repo, base, head and the changed files with their new-side line ranges, written by a caller and read with `diff --changes`; the same format tangle-ts reads, so both tools judge the same lines. |
 | Warning | Something that went wrong without stopping the run, listed in the report: a target that produced no mutants, for example. |
 | Report | `report.json` (everything, with `schemaVersion`, written once at the end) and `report.md` (what ran, what was skipped and why, survivors by file), rewritten with an "In progress" line as each package run finishes. |
-| Mutants file | `mutants.json`, the model mutants an author submitted, stored next to the report as the replayable record of a run. |
+| Mutants file | The author's answers, `{ "mutants": [{ "placeholder", "replacement", "because" }] }`. `run --mutants` writes the ones that ran, cached ones included, to `mutants.json` next to the report as the replayable record. |
 | Consumer | Whoever reads the report: a review agent, a person, a skill. Outside the tool. |

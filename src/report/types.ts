@@ -72,6 +72,8 @@ export interface FindingMutant {
   readonly coveredBy: number;
   /** Set when escalation retried it in a later lane, which did not kill it. */
   readonly escalated?: { readonly lane: string; readonly status: MutantStatus; readonly coveredBy: number };
+  /** A model mutant's reading of how behaviour differs, from its author. */
+  readonly because?: string;
 }
 
 /** Additions are compatible; bumped whenever a field of Report or Finding is removed, renamed or changes meaning. */
@@ -81,6 +83,8 @@ export interface PackageSummary {
   readonly lane: string;
   /** A run that retried unit-lane survivors, not one that took untested files. */
   readonly escalated: boolean;
+  /** Set on runs of model mutants, which `run --mutants` replaces as a whole. */
+  readonly model?: true;
   readonly name: string;
   readonly dir: string;
   readonly targets: readonly string[];
@@ -125,4 +129,17 @@ export interface Report {
   /** Accepted survivors and untested files this run met; they are not findings. */
   readonly accepted: readonly AcceptedMatch[];
   readonly findings: readonly Finding[];
+  /** Set once `run --mutants` has merged model mutants into the report. */
+  readonly model?: ModelSummary;
+}
+
+/** The last `run --mutants` merged into the report. */
+export interface ModelSummary {
+  readonly command: string;
+  readonly createdAt: string;
+  /** Paths of the placeholders file and the record of the mutants that ran, both replayable. */
+  readonly placeholders: string;
+  readonly mutants: string;
+  /** Answers that did not run, with the reason; also in rejected.json. */
+  readonly rejected: readonly { readonly placeholder: string; readonly replacement: string; readonly reason: string }[];
 }

@@ -1,10 +1,10 @@
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Package } from '../../change/types.ts';
-import type { RunResult, ShimOptions, TestRunner } from '../../ports/test-runner.ts';
+import type { RunOptions, RunResult, ShimOptions, TestRunner } from '../../ports/test-runner.ts';
 
 /**
  * Vitest behind the TestRunner port. The shim imports the package's own config statically, so
@@ -37,18 +37,23 @@ export class VitestRunner implements TestRunner {
     return { testRunner: 'vitest', vitest: { configFile: shimPath, related: false, ...this.extra } };
   }
 
-  async run(pkg: Package, shimPath: string, cwd: string, timeoutMs: number): Promise<RunResult> {
+  async run(pkg: Package, shimPath: string, cwd: string, timeoutMs: number, opts: RunOptions = {}): Promise<RunResult> {
     const bin = vitestBin(pkg.dir);
-    const outFile = path.join(path.dirname(shimPath), 'vitest-run.json');
+    const outFile = path.join(path.dirname(shimPath), `${path.basename(shimPath).replace(/\.[cm]?[jt]s$/, '')}-run.json`);
+    // A result left by an earlier run would read as this one's when the runner dies before writing.
+    rmSync(outFile, { force: true });
     const started = Date.now();
     const output = await new Promise<{ code: number | null; text: string; timedOut: boolean }>((resolve, reject) => {
       const child = spawn(process.execPath, [bin, 'run', '--config', shimPath, '--root', cwd, '--reporter', 'json', '--outputFile', outFile], {
         cwd,
-        env: { ...process.env, CI: 'true' },
+        env: { ...process.env, ...opts.env, CI: 'true' },
         detached: true,
       });
       let text = '';
       let timedOut = false;
+      const onAbort = () => killGroup(child.pid);
+      opts.signal?.addEventListener('abort', onAbort, { once: true });
+      if (opts.signal?.aborted) onAbort();
       child.stdout.on('data', (d) => (text += d));
       child.stderr.on('data', (d) => (text += d));
       const timer = setTimeout(() => {
@@ -57,24 +62,37 @@ export class VitestRunner implements TestRunner {
       }, timeoutMs);
       child.on('error', (err) => {
         clearTimeout(timer);
+        opts.signal?.removeEventListener('abort', onAbort);
         reject(err);
       });
       child.on('close', (code) => {
         clearTimeout(timer);
+        opts.signal?.removeEventListener('abort', onAbort);
         resolve({ code, text, timedOut });
       });
     });
     let passed = 0;
     let failed = 0;
+    let failedSuites = 0;
     if (existsSync(outFile)) {
-      const json = JSON.parse(readFileSync(outFile, 'utf8')) as { numPassedTests?: number; numFailedTests?: number };
+      const json = JSON.parse(readFileSync(outFile, 'utf8')) as { numPassedTests?: number; numFailedTests?: number; numFailedTestSuites?: number };
       passed = json.numPassedTests ?? 0;
       failed = json.numFailedTests ?? 0;
+      failedSuites = json.numFailedTestSuites ?? 0;
     }
-    // A non-zero exit with nothing passed is a failure whatever the JSON says (no test files, crash).
-    if (!output.timedOut && output.code !== 0 && passed === 0) failed = Math.max(failed, 1);
-    return { passed, failed, timedOut: output.timedOut, durationMs: Date.now() - started, output: output.text };
+    const failedFiles = failedFilesOf({ failed, failedSuites, code: output.code, timedOut: output.timedOut });
+    return { passed, failed, failedFiles, timedOut: output.timedOut, durationMs: Date.now() - started, output: output.text };
   }
+}
+
+/**
+ * Spec files that failed with no failing test: a file did not load, a hook threw, an error went unhandled.
+ * A crash can leave no JSON, so a non-zero exit that is not a timeout counts as one at least.
+ */
+export function failedFilesOf(r: { failed: number; failedSuites: number; code: number | null; timedOut: boolean }): number {
+  if (r.failed > 0 || r.timedOut) return 0;
+  if (r.failedSuites > 0) return r.failedSuites;
+  return r.code === 0 ? 0 : 1;
 }
 
 const ENV_MODULE = 'weakspot-env.mjs';

@@ -12,7 +12,8 @@ export function renderMarkdown(r: Report, snapshot?: Snapshot): string {
     `Repo: ${r.repo}  `,
     `Change: ${r.change.kind} (${r.change.detail})  `,
     `Run: ${r.createdAt}  `,
-    `Command: \`${r.command}\``,
+    `Command: \`${r.command}\`${r.model ? '  ' : ''}`,
+    ...modelLines(r),
     ``,
     ...packageTable(r),
     ...section('Untested (no spec found, not mutated)', r.untested),
@@ -25,6 +26,7 @@ export function renderMarkdown(r: Report, snapshot?: Snapshot): string {
     ...survivorList(r.survivors.filter((s) => !s.noise && !s.accepted)),
     ...noiseList(r.survivors.filter((s) => s.noise && !s.accepted)),
     ...section('Killed in a later lane (unit tests miss them, not findings)', r.killedLater.map((k) => `${k.where} \`${k.id}\`: ${k.lane} lane`)),
+    ...section('Rejected model mutants (not run)', (r.model?.rejected ?? []).map((x) => `\`${x.placeholder}\` → \`${oneLine(x.replacement) || '(empty)'}\`: ${x.reason}`)),
     ...section('Accepted (not findings)', r.accepted.map((a) => `${a.where} \`${a.id}\`: ${a.reason} (${a.date.slice(0, 10)})`)),
   ].join('\n');
 }
@@ -41,7 +43,7 @@ function packageTable(r: Report): string[] {
     const total = Object.values(c).reduce((a, b) => a + b, 0);
     const errors = (c['CompileError'] ?? 0) + (c['RuntimeError'] ?? 0);
     lines.push(
-      `| ${p.escalated ? `${p.lane} (retry)` : p.lane} | ${p.name} | ${p.targets.length} | ${p.specs.length} | ${p.testCount} | ${total} | ${c['Killed'] ?? 0} | ${c['Survived'] ?? 0} | ${c['NoCoverage'] ?? 0} | ${c['Timeout'] ?? 0} | ${errors} | ${c['Ignored'] ?? 0} | ${(p.durationMs / 1000).toFixed(1)}s |`,
+      `| ${laneLabel(p)} | ${p.name} | ${p.targets.length} | ${p.specs.length} | ${p.testCount} | ${total} | ${c['Killed'] ?? 0} | ${c['Survived'] ?? 0} | ${c['NoCoverage'] ?? 0} | ${c['Timeout'] ?? 0} | ${errors} | ${c['Ignored'] ?? 0} | ${(p.durationMs / 1000).toFixed(1)}s |`,
     );
   }
   return lines;
@@ -75,14 +77,30 @@ function noiseList(survivors: readonly Survivor[]): string[] {
   return [``, `## Noise (${survivors.length}, not findings: ${summary})`, ``, ...survivors.map((s) => `${survivorLine(s)} [${s.noise}] in ${s.mutant.file}`)];
 }
 
+function laneLabel(p: Report['packages'][number]): string {
+  if (p.model) return `${p.lane} (model)`;
+  return p.escalated ? `${p.lane} (retry)` : p.lane;
+}
+
+/** Below the header once `run --mutants` has merged its results. */
+function modelLines(r: Report): string[] {
+  if (!r.model) return [];
+  return [`Model mutants: \`${r.model.command}\` at ${r.model.createdAt}, ${r.model.rejected.length} answer(s) rejected; replay with \`weakspot run --mutants ${r.model.mutants}\``];
+}
+
+function oneLine(s: string): string {
+  return s.replaceAll(/\s+/g, ' ').trim();
+}
+
 function survivorLine({ mutant: m, kind, escalated }: Survivor): string {
   const coverage: Record<Survivor['kind'], string> = {
     static: 'static: every test ran against it, none fails',
     noCoverage: 'no test reaches this line',
-    weakAssertion: `${m.coveredBy} covering test(s), none fails`,
+    weakAssertion: m.mutator === 'model' ? `${m.coveredBy} test(s) ran, none fails` : `${m.coveredBy} covering test(s), none fails`,
   };
   const later = escalated ? `; ${laterLane(escalated)}` : '';
-  return `- L${m.start.line}:${m.start.column} ${m.mutator} → \`${m.replacement.replaceAll(/\s+/g, ' ').trim() || '(removed)'}\` (${coverage[kind]}${later})`;
+  const because = m.because ? `: ${m.because}` : '';
+  return `- L${m.start.line}:${m.start.column} ${m.mutator} → \`${oneLine(m.replacement) || '(removed)'}\` (${coverage[kind]}${later})${because}`;
 }
 
 function snapshotLines(snapshot: Snapshot | undefined): string[] {

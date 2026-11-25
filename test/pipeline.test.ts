@@ -66,7 +66,7 @@ function run(
       return Promise.resolve({ pkg: plan.pkg, mutants: opts.mutants?.(plan) ?? [], testCount: 0, durationMs: 0, artifacts: {}, ...(opts.engineWarnings ? { warnings: opts.engineWarnings } : {}) });
     },
   };
-  const runner: TestRunner = { name: 'fake', detect: opts.detect ?? (() => true), writeShim: () => '', engineConfig: () => ({}), run: () => Promise.resolve({ passed: 0, failed: 0, timedOut: false, durationMs: 0, output: '' }) };
+  const runner: TestRunner = { name: 'fake', detect: opts.detect ?? (() => true), writeShim: () => '', engineConfig: () => ({}), run: () => Promise.resolve({ passed: 0, failed: 0, failedFiles: 0, timedOut: false, durationMs: 0, output: '' }) };
   const packages: PackageLocator = { repoRoot: () => repo, packageOf: (_root, abs) => [app, lib, e2eOnly].find((p) => abs.startsWith(`${p.dir}/`)) };
   const config = validate({ lanes: { e2e: { config: 'vitest-e2e.config.ts', specs: 'imports' } } }, 'test');
   const input: PipelineInput = {

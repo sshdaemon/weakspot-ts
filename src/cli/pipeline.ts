@@ -89,16 +89,7 @@ export async function runPipeline(input: PipelineInput): Promise<{ report: Repor
   // A reused --out must not show the last run's report, whatever fails in this one.
   for (const name of ['report.json', 'report.md']) rmSync(path.join(input.out, name), { force: true });
 
-  const decisions = triage(input.changed, input.config.skip, input.config);
-  const kept: TriageDecision[] = decisions.filter((d) => d.kept);
-  const resolve = packageResolvers(input);
-  const selection = input.laneSelection ?? 'fallback';
-  const rule = unitDiscovery(input, kept, selection, resolve.unit);
-  const lookups = laneLookups(input, rule, resolve.lane);
-  const lanes = assignLanes(rule.kept, lookups, selection);
-  const plans: PackagePlan[] = lanes.assignments.flatMap((a) => planPackages(a.kept, a.specs, a.packages, a.lane).plans);
-  checkSpecsInsidePackages(plans, repoRoot);
-  logPlan(input, lanes, rule, plans);
+  const { decisions, selection, rule, lookups, lanes, plans } = planRun(input);
   const prepared = new Set<string>();
   runPrepares(plans, input.log, prepared);
 
@@ -136,6 +127,31 @@ export async function runPipeline(input: PipelineInput): Promise<{ report: Repor
     writeFileSync(path.join(input.out, 'report.md'), renderMarkdown(report));
     return { report, outDir: input.out };
   }
+}
+
+/** What a run will check before anything runs: triage, spec discovery per lane, the changed-spec rule and the plans. */
+export interface RunPlan {
+  readonly decisions: readonly TriageDecision[];
+  readonly selection: LaneSelection;
+  readonly rule: ChangedSpecOutcome;
+  readonly lookups: readonly LaneLookup[];
+  readonly lanes: LaneOutcome;
+  readonly plans: readonly PackagePlan[];
+}
+
+/** Shared by the mutation run and `propose`; logs the plan. */
+export function planRun(input: PipelineInput): RunPlan {
+  const decisions = triage(input.changed, input.config.skip, input.config);
+  const kept: TriageDecision[] = decisions.filter((d) => d.kept);
+  const resolve = packageResolvers(input);
+  const selection = input.laneSelection ?? 'fallback';
+  const rule = unitDiscovery(input, kept, selection, resolve.unit);
+  const lookups = laneLookups(input, rule, resolve.lane);
+  const lanes = assignLanes(rule.kept, lookups, selection);
+  const plans: PackagePlan[] = lanes.assignments.flatMap((a) => planPackages(a.kept, a.specs, a.packages, a.lane).plans);
+  checkSpecsInsidePackages(plans, input.repoRoot);
+  logPlan(input, lanes, rule, plans);
+  return { decisions, selection, rule, lookups, lanes, plans };
 }
 
 interface PackageResolvers {
@@ -235,7 +251,7 @@ interface Done {
   readonly result: EngineRunResult;
 }
 
-function acceptedEntries(input: PipelineInput): Map<string, AcceptedEntry> {
+export function acceptedEntries(input: Pick<PipelineInput, 'suppressions'>): Map<string, AcceptedEntry> {
   return new Map((input.suppressions?.store.list(input.suppressions.repoKey) ?? []).map((e) => [e.id, e] as const));
 }
 
@@ -274,7 +290,7 @@ function writeProgress(input: PipelineInput, snapshot: () => Report, state: Snap
 }
 
 /** Survivors' scope and noise class, read once per file. */
-function inspect(input: PipelineInput, mutants: readonly Mutant[]): Map<string, MutantSite> {
+export function inspect(input: Pick<PipelineInput, 'inspector' | 'repoRoot'>, mutants: readonly Mutant[]): Map<string, MutantSite> {
   const out = new Map<string, MutantSite>();
   if (!input.inspector) return out;
   const byFile = new Map<string, Mutant[]>();
@@ -292,7 +308,7 @@ function withScope(m: Mutant, site: MutantSite | undefined): Mutant {
 }
 
 /** Noise labels limited to the classes the config hides. */
-function noiseOf(input: PipelineInput, sites: ReadonlyMap<string, MutantSite>): Map<string, NoiseClass> {
+export function noiseOf(input: { readonly config: Pick<ToolConfig, 'noise'> }, sites: ReadonlyMap<string, MutantSite>): Map<string, NoiseClass> {
   const out = new Map<string, NoiseClass>();
   for (const [id, site] of sites) if (site.noise && input.config.noise.includes(site.noise)) out.set(id, site.noise);
   return out;
@@ -319,7 +335,7 @@ function logPlan(input: PipelineInput, lanes: LaneOutcome, rule: ChangedSpecOutc
 }
 
 /** Each lane's prepare command, once per package across the whole run. */
-function runPrepares(plans: readonly PackagePlan[], log: (line: string) => void, prepared: Set<string>): void {
+export function runPrepares(plans: readonly Pick<PackagePlan, 'lane' | 'pkg'>[], log: (line: string) => void, prepared: Set<string>): void {
   for (const p of plans) {
     const key = `${p.lane.name}:${p.pkg.dir}`;
     if (!p.lane.prepare || prepared.has(key)) continue;
@@ -512,7 +528,7 @@ async function runAll(plans: readonly PackagePlan[], input: PipelineInput, workD
 }
 
 /** Offsets with room for restarts: an engine replaces a crashed worker with a fresh id, so each plan's stretch is far wider than its concurrency. */
-export function workerOffsets(plans: readonly PackagePlan[]): number[] {
+export function workerOffsets(plans: readonly { readonly lane: Pick<Lane, 'concurrency'> }[]): number[] {
   const out: number[] = [];
   let next = 0;
   for (const p of plans) {
@@ -522,11 +538,11 @@ export function workerOffsets(plans: readonly PackagePlan[]): number[] {
   return out;
 }
 
-function laneOf(c: LaneConfig): Lane {
+export function laneOf(c: LaneConfig): Lane {
   return { name: c.name, timeoutMs: c.timeoutMs, concurrency: c.concurrency, env: c.envPerWorker, ...(c.prepare ? { prepare: c.prepare } : {}) };
 }
 
-function countBy(mutants: readonly Mutant[]): Record<string, number> {
+export function countBy(mutants: readonly Mutant[]): Record<string, number> {
   const out: Record<string, number> = {};
   for (const m of mutants) out[m.status] = (out[m.status] ?? 0) + 1;
   return out;

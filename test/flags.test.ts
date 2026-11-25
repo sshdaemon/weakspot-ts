@@ -75,3 +75,21 @@ test('--changes: diff only, and not with the flags that pick the lines from git'
     assert.throws(() => checkUsage('diff', [], { changes: 'c.json', ...flag }), /--changes names the base and lines itself/);
   }
 });
+
+test('propose: a diff without paths, named files with them; engine flags and run flags do not apply', () => {
+  assert.doesNotThrow(() => checkUsage('propose', [], { base: 'main' }));
+  assert.doesNotThrow(() => checkUsage('propose', [], { changes: 'c.json', lanes: 'all' }));
+  assert.doesNotThrow(() => checkUsage('propose', ['a.ts:3-9'], { specs: ['a.test.ts'] }));
+  assert.throws(() => checkUsage('propose', ['a.ts'], { base: 'main' }), /apply to diff only, not to named files/);
+  assert.throws(() => checkUsage('propose', [], { escalate: 'survivors', 'timeout-ms': '9' }), /propose runs no tests: --escalate, --timeout-ms do not apply/);
+  assert.doesNotThrow(() => checkUsage('diff', [], { escalate: 'survivors', 'timeout-ms': '9', concurrency: '2', exclude: 'X' }), 'the engine flags still apply to diff');
+  assert.throws(() => checkUsage('propose', [], { mutants: 'm.json' }), /--mutants and --placeholders apply to run only/);
+  assert.throws(() => checkUsage('diff', [], { placeholders: 'p.json' }), /apply to run only/);
+});
+
+test('run: --mutants required, no paths, and only the flags it reads', () => {
+  assert.doesNotThrow(() => checkUsage('run', [], { mutants: 'm.json', placeholders: 'p.json', out: 'o', repo: '.', quiet: true, 'timeout-ms': '9', concurrency: '2' }));
+  assert.throws(() => checkUsage('run', [], {}), /run: --mutants <file> is required/);
+  assert.throws(() => checkUsage('run', ['a.ts'], { mutants: 'm.json' }), /run takes no paths/);
+  assert.throws(() => checkUsage('run', [], { mutants: 'm.json', base: 'main', lanes: 'all' }), /run: --base, --lanes do not apply/);
+});

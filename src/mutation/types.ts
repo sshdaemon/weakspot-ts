@@ -31,6 +31,8 @@ export interface Mutant {
   /** Enclosing named functions and classes, outermost first, dot-joined; set for survivors once the source is read. */
   readonly scope?: string;
   readonly replacement: string;
+  /** A model mutant's one-line reading of how behaviour differs, from its author. */
+  readonly because?: string;
   readonly status: MutantStatus;
   readonly statusReason: string;
   /** Number of tests that execute the mutant's location in the dry run. */

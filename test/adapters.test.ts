@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import { dryRunFailures, mutatePatterns, textAt } from '../src/adapters/stryker/stryker-engine.ts';
-import { VitestRunner, envSource, shimSource } from '../src/adapters/vitest/vitest-runner.ts';
+import { VitestRunner, envSource, failedFilesOf, shimSource } from '../src/adapters/vitest/vitest-runner.ts';
 import { validate } from '../src/cli/config.ts';
 import { workerOffsets } from '../src/cli/pipeline.ts';
 
@@ -144,4 +144,10 @@ test('mutatePatterns: exact spans become Stryker column ranges, one less than th
     ]),
     ['src/[[]id[]]/a.ts:3:6-3:11', 'src/[[]id[]]/a.ts:5:0-6:1'],
   );
+});
+
+const r = (failed: number, failedSuites: number, code: number | null, timedOut = false) => failedFilesOf({ failed, failedSuites, code, timedOut });
+
+test('failedFilesOf: failed suites without a failing test, or a non-zero exit with nothing to show for it; never on a timeout or a failing test', () => {
+  assert.deepEqual([r(0, 2, 1), r(0, 0, 1), r(0, 0, null), r(0, 0, 0), r(1, 1, 1), r(0, 1, 1, true), r(0, 0, 0, true)], [2, 1, 1, 0, 0, 0, 0]);
 });
