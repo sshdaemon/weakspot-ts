@@ -24,10 +24,11 @@ import { UNIT_LANE, type LaneConfig, type ToolConfig } from './config.ts';
 
 /** The specs never ran the instrumented copy of a file: a sandbox or alias problem, not weak tests. */
 export class UninstrumentedError extends Error {
-  constructor(files: readonly string[]) {
+  constructor(files: readonly string[], warnings: readonly string[]) {
+    const also = warnings.length > 0 ? ` Also: ${warnings.join('; ')}.` : '';
     super(
       `the specs never loaded the instrumented copy of: ${files.join(', ')}. ` +
-        `Every mutant survived with no covering test, which points at an import or alias that resolves outside the sandbox.`,
+        `Every mutant survived with no covering test, which points at an import or alias that resolves outside the sandbox.${also}`,
     );
     this.name = 'UninstrumentedError';
   }
@@ -129,7 +130,7 @@ export async function runPipeline(input: PipelineInput): Promise<{ report: Repor
     });
     // A unit spec can import a file and call none of it; a later lane that reaches it shows the sandbox is fine.
     const broken = uninstrumentedFiles(mutants).filter((key) => !escalation.mutants.some((m) => m.file === key && (m.coveredBy > 0 || m.status === 'Killed' || m.status === 'Timeout')));
-    if (broken.length > 0) throw new UninstrumentedError(broken);
+    if (broken.length > 0) throw new UninstrumentedError(broken, engineWarningsOf([...first, ...retried].map((d) => d.result)));
     const { report } = assemble(input, ctx, first, retried);
     writeFileSync(path.join(input.out, 'report.json'), JSON.stringify(report, null, 2));
     writeFileSync(path.join(input.out, 'report.md'), renderMarkdown(report));
@@ -386,13 +387,19 @@ interface RunOutcome {
   readonly acceptedById: ReadonlyMap<string, AcceptedEntry>;
 }
 
+/** Warnings from the engine runs, each once. */
+function engineWarningsOf(results: readonly EngineRunResult[]): string[] {
+  return [...new Set(results.flatMap((r) => r.warnings ?? []))];
+}
+
 function buildReport(input: PipelineInput, run: RunOutcome): Report {
   const { repoRoot } = input;
   const { lanes, plans, results, mutants } = run;
   const warnings = plans
     .flatMap((plan) => plan.targets)
     .filter((t) => !mutants.some((m) => m.file === t.file))
-    .map((t) => `${t.file}: produced no mutants (nothing mutable in the given range, or the path did not match)`);
+    .map((t) => `${t.file}: produced no mutants (nothing mutable in the given range, or the path did not match)`)
+    .concat(engineWarningsOf([...results, ...run.escalation.results]));
   const { noise, acceptedById } = run;
   const survivors: Survivor[] = [];
   const killedLater: KilledLater[] = [];

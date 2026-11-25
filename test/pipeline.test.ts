@@ -52,7 +52,7 @@ function run(
   unit: Record<string, string[]>,
   e2e: Record<string, string[]>,
   specImports: Record<string, string[]> = {},
-  opts: { detect?: (pkg: Package) => boolean; specs?: string[]; mutants?: (plan: PackagePlan) => Mutant[]; extra?: Partial<PipelineInput> } = {},
+  opts: { detect?: (pkg: Package) => boolean; specs?: string[]; mutants?: (plan: PackagePlan) => Mutant[]; engineWarnings?: string[]; extra?: Partial<PipelineInput> } = {},
 ) {
   const plans: PackagePlan[] = [];
   const logs: string[] = [];
@@ -63,7 +63,7 @@ function run(
     workerIdVariable: 'W',
     run: (plan): Promise<EngineRunResult> => {
       plans.push(plan);
-      return Promise.resolve({ pkg: plan.pkg, mutants: opts.mutants?.(plan) ?? [], testCount: 0, durationMs: 0, artifacts: {} });
+      return Promise.resolve({ pkg: plan.pkg, mutants: opts.mutants?.(plan) ?? [], testCount: 0, durationMs: 0, artifacts: {}, ...(opts.engineWarnings ? { warnings: opts.engineWarnings } : {}) });
     },
   };
   const runner: TestRunner = { name: 'fake', detect: opts.detect ?? (() => true), writeShim: () => '', engineConfig: () => ({}), run: () => Promise.resolve({ passed: 0, failed: 0, timedOut: false, durationMs: 0, output: '' }) };
@@ -505,3 +505,50 @@ test('a reused --out loses both old reports, whether the run fails in its only e
   await assert.rejects(() => run([file('app/src/a.ts')], 'fallback', { 'app/src/a.ts': ['app/src/a.test.ts'] }, {}, {}, { extra: { engine: failing } }), EngineFailedError);
   assert.ok(!existsSync(path.join(out, 'report.json')) && !existsSync(path.join(out, 'report.md')), 'a failed only engine run leaves no old report');
 });
+
+test('engine warnings reach the report once, after the per-file ones', async () => {
+  const { report } = await run(
+    [file('app/src/unit.ts'), file('app/src/e2e.ts')],
+    'fallback',
+    { 'app/src/unit.ts': ['app/src/unit.test.ts'] },
+    { 'app/src/e2e.ts': ['app/e2e/e2e.e2e-spec.ts'] },
+    {},
+    { engineWarnings: ['app/.tools/x: link to a directory, left out of the mutation sandbox'] },
+  );
+  assert.equal(report.packages.length, 2);
+  assert.deepEqual(report.warnings.slice(-1), ['app/.tools/x: link to a directory, left out of the mutation sandbox']);
+  assert.equal(report.warnings.filter((w) => w.includes('link to a directory')).length, 1);
+});
+
+function neverLoaded(plan: PackagePlan): Mutant[] {
+  return plan.targets.map((t) => ({
+    id: `${t.file}#1`,
+    file: t.file,
+    lane: plan.lane.name,
+    mutator: 'BooleanLiteral',
+    start: { line: 1, column: 1 },
+    end: { line: 1, column: 2 },
+    original: 'true',
+    replacement: 'false',
+    status: 'Survived',
+    statusReason: '',
+    coveredBy: 0,
+    isStatic: false,
+    killedBy: [],
+  }));
+}
+
+test('when the specs never loaded the instrumented copy, the error also names the engine warnings', async () => {
+  await assert.rejects(
+    run([file('app/src/unit.ts')], 'fallback', { 'app/src/unit.ts': ['app/src/unit.test.ts'] }, {}, {}, { mutants: neverLoaded }),
+    /resolves outside the sandbox\.$/,
+  );
+  await assert.rejects(
+    run([file('app/src/unit.ts')], 'fallback', { 'app/src/unit.ts': ['app/src/unit.test.ts'] }, {}, {}, {
+      engineWarnings: ['app/src-link: link to a directory, left out of the mutation sandbox'],
+      mutants: neverLoaded,
+    }),
+    /never loaded the instrumented copy of: app\/src\/unit\.ts\..* Also: app\/src-link: link to a directory, left out of the mutation sandbox\.$/,
+  );
+});
+

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'vitest';
@@ -133,3 +134,46 @@ test('vitest runner: a direct run of the fixture specs passes', { timeout: 60_00
     rmSync(shimDir, { recursive: true, force: true });
   }
 });
+
+test('vitest + stryker: links to directories stay out of the sandbox; a tracked one is reported', { timeout: 180_000 }, async () => {
+  const repo = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'weakspot-links-')));
+  const out = mkdtempSync(path.join(os.tmpdir(), 'weakspot-links-out-'));
+  const git = (...args: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd: repo, stdio: 'ignore' });
+  try {
+    cpSync(path.join(fixtures, 'vitest-basic'), repo, { recursive: true, filter: (src) => !src.endsWith('node_modules') });
+    symlinkSync(path.resolve(fixtures, '..', 'node_modules'), path.join(repo, 'node_modules'));
+    mkdirSync(path.join(repo, '.tools/skills'), { recursive: true });
+    writeFileSync(path.join(repo, '.tools/settings.json'), '{}\n');
+    symlinkSync('../../src', path.join(repo, '.tools/skills/src'));
+    symlinkSync('src', path.join(repo, 'src-link'));
+    writeFileSync(path.join(repo, '.gitignore'), 'node_modules\n.tools/skills/\n');
+    git('init', '-q', '-b', 'main');
+    git('add', '.');
+    git('commit', '-q', '-m', 'base');
+    const logs: string[] = [];
+    const files = (specs: string[]) => filesCommand({
+      files: ['src/price.ts'],
+      specs,
+      repoRoot: repo,
+      baseDir: repo,
+      out,
+      config: DEFAULTS,
+      runner: new VitestRunner(),
+      engine: new StrykerEngine(),
+      specFinder: new ImportSpecFinder(),
+      imports: new ImportSpecFinder(),
+      packages: new FsPackageLocator(),
+      log: (line) => logs.push(line),
+      commandLine: 'contract test',
+      version: 'test',
+    });
+    const { report } = await files([]);
+    assert.ok((report.packages[0]!.counts['Killed'] ?? 0) >= 5, `killed: ${JSON.stringify(report.packages[0]!.counts)}`);
+    assert.deepEqual(report.warnings, ['src-link: link to a directory, left out of the mutation sandbox']);
+    assert.ok(logs.some((l) => l.endsWith('src-link: link to a directory, left out of the mutation sandbox')), 'logged before Stryker runs');
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(out, { recursive: true, force: true });
+  }
+});
+

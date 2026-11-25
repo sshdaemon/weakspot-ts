@@ -106,6 +106,8 @@ Decisions live in `~/.weakspot/accepted.json`, per repository (keyed like the re
 
 A spec whose edit added and removed only import declarations or blank lines is listed but not used to mutate the sources it imports; removing a test always counts as a change.
 
+Links to directories inside a package are left out of the sandbox copy, which cannot copy them. A link git ignores, such as one in an editor or tool folder, is left out quietly; any other is named in the report's warnings, since a spec that needs code behind it may fail in the sandbox. The engine logs each one before Stryker starts, and the "never loaded the instrumented copy" error names them too.
+
 If every mutant of a file survives with no covering test, the run fails instead of reporting them: the specs never loaded the instrumented copy, usually because an import resolves outside the sandbox. The shim rebases aliases that point into the package, so this should only happen for imports it cannot see.
 
 The words used in code and reports are defined in [docs/glossary.md](docs/glossary.md).

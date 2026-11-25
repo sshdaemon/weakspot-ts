@@ -85,6 +85,8 @@ export interface EngineRunResult {
   readonly durationMs: number;
   /** Paths of the engine's own artifacts (config, raw report, log). */
   readonly artifacts: Record<string, string>;
+  /** Things the engine left out or worked around, for the report. */
+  readonly warnings?: readonly string[];
 }
 
 export interface EngineRunOptions {

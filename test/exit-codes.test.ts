@@ -14,7 +14,7 @@ import { InterruptedError, UninstrumentedError, UsageError } from '../src/cli/pi
 test('exit codes: 2 for what the caller got wrong, 3 for a run that could not complete, 130 when interrupted', () => {
   assert.deepEqual(EXIT, { clean: 0, findings: 1, usage: 2, failed: 3, interrupted: 130 });
   for (const err of [new UsageError('u'), new ConfigError('c'), new GitError('g'), new SuppressionStoreError('s'), new ChangeListError('l')]) assert.equal(exitCodeFor(err), 2, err.name);
-  for (const err of [new TestsFailBeforeMutationError('p', 'd'), new PrepareError('p'), new SpecCommandError('s'), new EngineFailedError('e'), new UninstrumentedError(['a.ts']), new Error('a bug'), 'a string']) {
+  for (const err of [new TestsFailBeforeMutationError('p', 'd'), new PrepareError('p'), new SpecCommandError('s'), new EngineFailedError('e'), new UninstrumentedError(['a.ts'], []), new Error('a bug'), 'a string']) {
     assert.equal(exitCodeFor(err), 3, String(err));
   }
   assert.equal(exitCodeFor(new InterruptedError()), 130);
@@ -24,7 +24,7 @@ test('messages: known errors print their message, anything else is marked as a w
   assert.equal(messageFor(new UsageError('bad flag')), 'bad flag');
   assert.equal(messageFor(new PrepareError('prepare exited with 1')), 'prepare exited with 1');
   assert.equal(messageFor(new EngineFailedError('stryker exited with 1')), 'stryker exited with 1', 'an engine failure is expected, not a bug');
-  assert.match(messageFor(new UninstrumentedError(['a.ts'])), /^the specs never loaded the instrumented copy of: a\.ts\./);
+  assert.match(messageFor(new UninstrumentedError(['a.ts'], [])), /^the specs never loaded the instrumented copy of: a\.ts\./);
   assert.equal(messageFor(new ChangeListError('c.json: bad')), 'c.json: bad');
   assert.equal(messageFor(new InterruptedError()), 'interrupted, engine runs stopped');
   assert.match(messageFor(new TypeError('x is undefined')), /^weakspot failed: x is undefined\n\s+at /);

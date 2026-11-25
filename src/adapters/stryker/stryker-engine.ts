@@ -10,6 +10,7 @@ import type { LineRange as Range } from '../../change/types.ts';
 import type { EngineRunOptions, EngineRunResult, Mutant, MutantStatus, PackagePlan, Span } from '../../mutation/types.ts';
 import type { MutationEngine } from '../../ports/mutation-engine.ts';
 import type { TestRunner } from '../../ports/test-runner.ts';
+import { directoryLinks, linkPatterns } from './directory-links.ts';
 
 interface StrykerMutant {
   id: string;
@@ -77,6 +78,9 @@ export class StrykerEngine implements MutationEngine {
       },
       path.join(dir, 'vitest.shim.mts'),
     );
+    const links = directoryLinks(plan.pkg.dir);
+    const warnings = links.other.map((rel) => `${repoRelative(opts.repoRoot, path.join(plan.pkg.dir, rel))}: link to a directory, left out of the mutation sandbox`);
+    for (const w of warnings) opts.log(`[${plan.pkg.name}] ${w}`);
     const reportPath = path.join(dir, 'stryker-report.json');
     // The engine dir is the same on every run into one --out; a stale report would read as this run's.
     rmSync(reportPath, { force: true });
@@ -92,7 +96,7 @@ export class StrykerEngine implements MutationEngine {
       tempDirName: path.join(dir, 'tmp'),
       cleanTempDir: 'always',
       // The package's own build output is never what its specs import; copying it only slows the sandbox. Anchored, so `src/build/` stays.
-      ignorePatterns: ['/dist', '/build', '/coverage', '/.turbo'],
+      ignorePatterns: ['/dist', '/build', '/coverage', '/.turbo', ...linkPatterns(links)],
       incremental: false,
       concurrency: plan.lane.concurrency,
       timeoutMS: plan.lane.timeoutMs,
@@ -162,7 +166,7 @@ export class StrykerEngine implements MutationEngine {
       }
     }
     const testCount = Object.values(report.testFiles ?? {}).reduce((n, f) => n + f.tests.length, 0);
-    return { pkg: plan.pkg, mutants, testCount, durationMs, artifacts: { config: configPath, report: reportPath, log: logPath, shim: shimPath } };
+    return { pkg: plan.pkg, mutants, testCount, durationMs, artifacts: { config: configPath, report: reportPath, log: logPath, shim: shimPath }, warnings };
   }
 }
 
