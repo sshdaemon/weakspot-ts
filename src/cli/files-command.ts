@@ -14,6 +14,11 @@ export interface FilesCommandInput extends Omit<PipelineInput, 'changed' | 'chan
 }
 
 export async function filesCommand(input: FilesCommandInput) {
+  return await runPipeline(filesPipelineInput(input));
+}
+
+/** The named files and ranges; shared by the mutation run and `propose`. */
+export function filesPipelineInput(input: FilesCommandInput): PipelineInput {
   const parsed = input.files.map((arg) => {
     try {
       return parseFileArg(arg);
@@ -24,10 +29,5 @@ export async function filesCommand(input: FilesCommandInput) {
   const paths = resolveInsideRepo(input.repoRoot, input.baseDir, parsed.map((p) => p.path), 'file');
   const changed: ChangedFile[] = parsed.map((p, i) => ({ path: paths[i]!, status: 'modified', ranges: p.ranges }));
   const specs = resolveInsideRepo(input.repoRoot, input.baseDir, input.specs, 'spec');
-  return await runPipeline({
-    ...input,
-    changed,
-    specs,
-    change: { kind: 'files', detail: parsed.map((p) => path.basename(p.path)).join(', ') },
-  });
+  return { ...input, changed, specs, change: { kind: 'files', detail: parsed.map((p) => path.basename(p.path)).join(', ') } };
 }

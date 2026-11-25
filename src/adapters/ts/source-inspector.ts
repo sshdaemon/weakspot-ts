@@ -110,7 +110,7 @@ function isLoggingStatement(st: ts.Statement): boolean {
 }
 
 /** `console.x(...)`, `<log or logger>.<level>(...)`, or a bare `log(...)`. */
-function isLoggingCall(call: ts.CallExpression): boolean {
+export function isLoggingCall(call: ts.CallExpression): boolean {
   const callee = call.expression;
   if (ts.isIdentifier(callee)) return callee.text === 'log';
   if (!ts.isPropertyAccessExpression(callee)) return false;
@@ -131,7 +131,7 @@ function nameOf(e: ts.Expression): string {
 }
 
 /** Named functions and classes around the node, outermost first; an unnamed function takes the name it is assigned to. */
-function scopeOf(node: ts.Node): string {
+export function scopeOf(node: ts.Node): string {
   const names: string[] = [];
   for (let n: ts.Node | undefined = node; n; n = n.parent) {
     const name = declaredName(n);

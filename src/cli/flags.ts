@@ -10,6 +10,10 @@ export const USAGE = `weakspot <command> [options]
 Commands
   diff                          mutate what changed against the base branch (committed, staged, unstaged and untracked)
   files <path[:start-end]>...   mutate the given files (or line ranges)
+  propose [<path[:start-end]>...]
+                                write placeholders.json for model-written mutants: the changed lines (or the given files)
+                                where an author may change a condition, loop header, call or returned value
+  run --mutants <file>          run an author's mutants against placeholders.json and merge them into report.json
   accept <id> --reason <text>   stop reporting a survivor or an untested file (ids are in report.json findings)
   accept <id> --revoke          report it again
 
@@ -23,11 +27,13 @@ Options
   --depth <1|2>       import hops between a spec and a source that still count (default from config, 1)
   --lanes <a,b|all>   run the named lanes (or all) for every file, instead of later lanes taking only what the unit lane left untested
   --escalate <mode>   untested, noCoverage or survivors: which unit-lane survivors to retry in the next lane (default from config, untested)
-  --out <dir>         where to write report.json and report.md (default: ~/.weakspot/runs/<repo>/<time>)
+  --out <dir>         where to write report.json and report.md (default: ~/.weakspot/runs/<repo>/<time>; for run, the placeholders file's folder)
   --timeout-ms <n>    per-mutant time limit for every lane (default from config, 3000)
   --concurrency <n>   engine worker count for every lane (default: cores, max 8)
   --exclude <a,b>     mutator names to switch off (replaces the config list)
   --quiet             only print the final summary
+  --mutants <file>    run: the author's answers, { "mutants": [{ "placeholder", "replacement", "because" }] }
+  --placeholders <f>  run: the placeholders file (default: placeholders.json next to --mutants)
   --reason <text>     accept: why the survivor or untested file is fine as is
   --revoke            accept: remove an earlier acceptance
 `;
@@ -47,6 +53,8 @@ export const OPTIONS = {
   concurrency: { type: 'string' },
   exclude: { type: 'string' },
   quiet: { type: 'boolean' },
+  mutants: { type: 'string' },
+  placeholders: { type: 'string' },
   reason: { type: 'string' },
   revoke: { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
@@ -54,24 +62,46 @@ export const OPTIONS = {
 
 export type Flags = ReturnType<typeof parseArgs<{ options: typeof OPTIONS; allowPositionals: true }>>['values'];
 
+const COMMANDS = new Set(['files', 'diff', 'propose', 'run', 'accept']);
+
+/** Flags that only a run of operator mutants reads. */
+const ENGINE_ONLY = ['escalate', 'exclude', 'timeout-ms', 'concurrency'] as const;
+
 /** Refuses commands, paths and flags that do not fit together. */
 export function checkUsage(command: string, rest: readonly string[], values: Flags): void {
-  if (command !== 'files' && command !== 'diff' && command !== 'accept') throw new UsageError(`unknown command ${command}\n${USAGE}`);
+  if (!COMMANDS.has(command)) throw new UsageError(`unknown command ${command}\n${USAGE}`);
   if (command === 'accept') {
     checkAcceptUsage(rest, values);
     return;
   }
+  if (command === 'run') {
+    checkRunUsage(rest, values);
+    return;
+  }
   if (values.reason !== undefined || values.revoke) throw new UsageError('--reason and --revoke apply to accept only');
+  if (values.mutants !== undefined || values.placeholders !== undefined) throw new UsageError('--mutants and --placeholders apply to run only');
+  if (command === 'propose') {
+    const engine = ENGINE_ONLY.filter((k) => values[k] !== undefined);
+    if (engine.length > 0) throw new UsageError(`propose runs no tests: ${engine.map((k) => `--${k}`).join(', ')} do not apply`);
+  }
   if (values.lanes !== undefined && values.escalate !== undefined && values.escalate !== 'untested') {
     throw new UsageError('--escalate retries survivors in the next lane, which --lanes already ran for every file; use one or the other');
   }
   if (command === 'files' && rest.length === 0) throw new UsageError('files: give at least one path');
   if (command === 'diff' && rest.length > 0) throw new UsageError(`diff takes no paths; use --repo to point at a checkout`);
   if (values.staged && values.committed) throw new UsageError('--staged and --committed exclude each other');
-  if (command === 'files' && (values.base || values.staged || values.committed || values.changes)) throw new UsageError('--base, --staged, --committed and --changes apply to diff only');
+  const named = command === 'files' || (command === 'propose' && rest.length > 0);
+  if (named && (values.base || values.staged || values.committed || values.changes)) throw new UsageError('--base, --staged, --committed and --changes apply to diff only, not to named files');
   if (values.changes !== undefined && (values.base || values.staged || values.committed)) {
     throw new UsageError('--changes names the base and lines itself; drop --base, --staged and --committed');
   }
+}
+
+function checkRunUsage(rest: readonly string[], values: Flags): void {
+  if (rest.length > 0) throw new UsageError('run takes no paths; pass the answers with --mutants');
+  if (!values.mutants) throw new UsageError('run: --mutants <file> is required');
+  const others = Object.keys(values).filter((k) => !['repo', 'mutants', 'placeholders', 'out', 'quiet', 'timeout-ms', 'concurrency'].includes(k));
+  if (others.length > 0) throw new UsageError(`run: ${others.map((k) => `--${k}`).join(', ')} do not apply`);
 }
 
 /** The repo config with command-line flags applied; a limit flag applies to every lane. */

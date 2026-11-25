@@ -4,10 +4,12 @@ import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, writeFi
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { escapeGlob } from '../../change/glob.ts';
+import { TOP_LEVEL_BUILD_FOLDERS } from '../fs/copy-sandbox.ts';
 import { repoRelative } from '../../change/paths.ts';
 import { LineRange } from '../../change/ranges.ts';
 import type { LineRange as Range } from '../../change/types.ts';
 import type { EngineRunOptions, EngineRunResult, Mutant, MutantStatus, PackagePlan, Span } from '../../mutation/types.ts';
+import { TestsFailBeforeMutationError } from '../../mutation/errors.ts';
 import type { MutationEngine } from '../../ports/mutation-engine.ts';
 import type { TestRunner } from '../../ports/test-runner.ts';
 import { directoryLinks, linkPatterns } from './directory-links.ts';
@@ -44,13 +46,6 @@ export class EngineFailedError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'EngineFailedError';
-  }
-}
-
-export class TestsFailBeforeMutationError extends Error {
-  constructor(pkgName: string, detail: string) {
-    super(`tests fail before mutation in ${pkgName}: ${detail}`);
-    this.name = 'TestsFailBeforeMutationError';
   }
 }
 
@@ -96,7 +91,7 @@ export class StrykerEngine implements MutationEngine {
       tempDirName: path.join(dir, 'tmp'),
       cleanTempDir: 'always',
       // The package's own build output is never what its specs import; copying it only slows the sandbox. Anchored, so `src/build/` stays.
-      ignorePatterns: ['/dist', '/build', '/coverage', '/.turbo', ...linkPatterns(links)],
+      ignorePatterns: [...TOP_LEVEL_BUILD_FOLDERS.map((d) => `/${d}`), ...linkPatterns(links)],
       incremental: false,
       concurrency: plan.lane.concurrency,
       timeoutMS: plan.lane.timeoutMs,

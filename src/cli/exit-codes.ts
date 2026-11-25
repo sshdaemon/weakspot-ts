@@ -2,7 +2,9 @@ import { SuppressionStoreError } from '../adapters/fs/suppression-store.ts';
 import { GitError } from '../adapters/git/git-change-source.ts';
 import { SpecCommandError } from '../adapters/shell/command-spec-finder.ts';
 import { PrepareError } from '../adapters/shell/run-command.ts';
-import { EngineFailedError, TestsFailBeforeMutationError } from '../adapters/stryker/stryker-engine.ts';
+import { EngineFailedError } from '../adapters/stryker/stryker-engine.ts';
+import { SandboxNotLoadedError, TestsFailBeforeMutationError } from '../mutation/errors.ts';
+import { MutantsFileError } from '../mutation/validate.ts';
 import { ChangeListError } from '../change/change-list.ts';
 import type { Report } from '../report/types.ts';
 import { ConfigError } from './config.ts';
@@ -14,7 +16,7 @@ export const EXIT = {
   clean: 0,
   /** The run completed with findings in report.json. */
   findings: 1,
-  /** The command line, the repo config, git, the change list or the accepted store was wrong; nothing ran. */
+  /** The command line, the repo config, git, the change list, a placeholders or mutants file, or the accepted store was wrong; nothing ran. */
   usage: 2,
   /** The run could not complete: tests fail before mutation, a prepare or spec command failed, the engine failed. */
   failed: 3,
@@ -30,11 +32,13 @@ const KNOWN: readonly (readonly [ErrorClass, number])[] = [
   [GitError, EXIT.usage],
   [SuppressionStoreError, EXIT.usage],
   [ChangeListError, EXIT.usage],
+  [MutantsFileError, EXIT.usage],
   [TestsFailBeforeMutationError, EXIT.failed],
   [PrepareError, EXIT.failed],
   [SpecCommandError, EXIT.failed],
   [EngineFailedError, EXIT.failed],
   [UninstrumentedError, EXIT.failed],
+  [SandboxNotLoadedError, EXIT.failed],
   [InterruptedError, EXIT.interrupted],
 ];
 

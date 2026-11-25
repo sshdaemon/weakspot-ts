@@ -12,6 +12,7 @@ A local tool for coding with LLM agents: a person or an agent runs it against a 
 4. A changed spec mutates the sources it imports, whole, against that spec: that is where "I added a test" claims get checked.
 5. Runs [StrykerJS](https://stryker-mutator.io) on exactly those ranges with exactly those specs, so a run takes seconds, not minutes.
 6. Writes `report.md` and `report.json`: what ran, what was skipped and why, and the survivors with how many tests reached each one.
+7. Optionally, offers the changed conditions, loop headers, calls and returned values to an author (an agent in your session, or you) who writes plausible mistakes there, then runs those too (see [Model mutants](#model-mutants)).
 
 Nothing is installed into or written inside the project: Stryker, its Vitest runner and a pinned Vitest live in this repo's `node_modules`, temp dirs, reports and a cache of each file's parsed imports (keyed by its content) live under `~/.weakspot/`, and Vitest's results cache is switched off so nothing lands in the project's `node_modules/.vite`.
 
@@ -24,6 +25,8 @@ node bin/weakspot.js diff --staged --base origin/main
 node bin/weakspot.js files src/utils/money.ts
 node bin/weakspot.js files src/a.ts:10-40 src/b.ts --specs src/a.spec.ts
 node bin/weakspot.js diff --changes changes.json   # the files and lines another tool already chose
+node bin/weakspot.js propose --out /tmp/ws          # placeholders for model mutants, same change as diff
+node bin/weakspot.js run --mutants /tmp/ws/answers.json
 ```
 
 `diff` compares the merge base of HEAD and the base ref with the working tree (committed, staged, unstaged and untracked), or with the index (`--staged`), or with HEAD (`--committed`). The base is `--base`, else the repo config's `base`, else the remote's default branch (`origin/HEAD`); without any of those the command stops and says so. Deleted files are ignored and only added and modified lines are mutated; a spec that only lost lines (a deleted test) still counts as a changed spec. `--repo` must be the top of the git checkout.
@@ -112,30 +115,44 @@ If every mutant of a file survives with no covering test, the run fails instead 
 
 The words used in code and reports are defined in [docs/glossary.md](docs/glossary.md).
 
+## Model mutants
+
+Stryker's operators change expressions; they cannot write the mistakes that matter in business code: a role check swapped for another, a date boundary moved by a day, a filter dropped, a scope widened. An author can. The tool never calls a model: whoever runs it, an agent in the session or a person, writes the mutants.
+
+1. `weakspot propose` takes the same change as `diff` (or named files, like `files`) and writes `placeholders.json` to `--out`: every condition (a JSX `&&` included), loop header, call target, argument list, returned expression and statement that is not a call on a changed line of a file some lane has specs for, with an excerpt of the source around them and the author prompt ([docs/mutant-author.md](docs/mutant-author.md)). Logging calls and the message of an error being thrown are left out. A fragment that holds a function or JSX (a callback's argument list, a returned JSX tree) is offered only for changed lines nothing smaller covers, so a one-line change inside a callback is answered on that line. Files mutated whole only because a changed spec imports them are left out: nothing in them changed. It runs no tests.
+2. The author answers with up to three replacements per placeholder, each with a one-line `because`, in a file of their own: `{ "mutants": [{ "placeholder", "replacement", "because" }] }`.
+3. `weakspot run --mutants <file>` checks every answer: a known placeholder, a reason, at most three, not identical, not a duplicate, still parses, stays inside its placeholder as the same kind of code, and the line still reads as it did at `propose`. Rejected answers are listed with the reason in `rejected.json` and the report; the rest run. Each lane and package gets a pool of sandboxes, one per worker (a copy of the package with `node_modules` linked back): a dry run first, then a canary (each target replaced by a module that throws on load, so its specs must fail, or they import the real tree and the job stops), then each mutant is written into a sandbox, that file's specs run, and the file is put back. A spec file that fails to load or whose hook throws kills a mutant as surely as a failing test. The real tree is never edited.
+4. Results merge into `report.json` in the same `--out` (by default the folder `placeholders.json` is in): model survivors become findings next to the operator ones, with the author's reading in the claim, and a later `run --mutants` replaces the earlier model results. With no report there yet, or one for another repo, the report holds the model mutants only.
+
+Answers that pass are kept per repository in `~/.weakspot/cache/mutants/`, keyed by placeholder (file, kind, enclosing function and text, not the line). The next `propose` marks placeholders that already have mutants as `cached`, and `run --mutants` runs those unless the author answers the placeholder again, so unchanged code needs no new answers. `mutants.json` in `--out` is the record of what ran, and `weakspot run --mutants <out>/mutants.json` replays it.
+
+A model mutant has no per-test coverage: its file's specs all run, and `coveredBy` counts the tests that ran. Survivors can be accepted like any other (`<file>#model#<hash>`).
+
 ## Report contract
 
 What a consumer (a review step, a script, an agent) can rely on. New fields may be added at any time; a field removed, renamed or changing meaning bumps `schemaVersion`.
 
-**Exit codes.** 0: the run completed with no findings. 1: it completed with findings in `report.json`. 2: the command line, the repo config, git, the change list or the accepted store was wrong, and nothing ran. 3: the run could not complete (tests fail before mutation, a prepare or spec command failed, the engine failed); the message names the log. 130: interrupted. Read 0 and 1 as a finished run.
+**Exit codes.** 0: the run completed with no findings. 1: it completed with findings in `report.json`. 2: the command line, the repo config, git, the change list, a placeholders or mutants file, or the accepted store was wrong, and nothing ran. 3: the run could not complete (tests fail before mutation, a prepare or spec command failed, the engine failed); the message names the log. 130: interrupted. Read 0 and 1 as a finished run.
 
 **`--out` layout** (default `~/.weakspot/runs/<repo>/<time>/`):
 
 - `report.json`: the full report, written once at the end.
 - `report.md`: the same for a person. It is rewritten as each package run finishes, with an "In progress" line under the title, so it can be read while a slow lane runs; the final version has no such line. A run that fails after a package run finished leaves it with a "Stopped" line instead. Both reports from an earlier run into the same folder are removed when a run starts, so a failure never leaves an old report looking current.
 - `engine/<package>-<hash>-<lane>/`: one folder per package and lane: `stryker.config.json`, `stryker-report.json`, `stryker.log`, `vitest.shim.mts`, `weakspot-env.mjs`. `engine-escalated/` holds the retries in a later lane, in the same shape.
+- `placeholders.json` (from `propose`), `mutants.json` (the model mutants that ran, replayable) and `rejected.json` (answers that did not run, with the reason), and `model/<n>-<lane>/` with each worker's shims.
 
-**`report.json`** carries `schemaVersion` (1), the change, the packages run per lane, what was skipped and why, untested files, the survivors (with noise class, acceptance and escalation), `killedLater`, `accepted`, and `findings`: what a consumer acts on. Each finding has:
+**`report.json`** carries `schemaVersion` (1), the change, the packages run per lane, what was skipped and why, untested files, the survivors (with noise class, acceptance and escalation), `killedLater`, `accepted`, `model` once model mutants were merged in (the command, the two files and the rejections), and `findings`: what a consumer acts on. Each finding has:
 
 | Field | Meaning |
 | --- | --- |
-| `id` | Stable across runs: `<file>#<mutator>#<hash>` for a survivor, `<file>#untested`. What `weakspot accept` takes. |
+| `id` | Stable across runs: `<file>#<mutator>#<hash>` for a survivor (`model` as the mutator for a model mutant), `<file>#untested`. What `weakspot accept` takes. |
 | `kind` | `weakAssertion`, `noCoverage`, `static` or `untested`. |
 | `file` | Repo-relative path. |
 | `where` | `file:line:column`, or the file for an untested file. |
 | `claim` | One sentence to act on. |
 | `evidence` | The mutator, lane and status, and how a retry in a later lane ended. |
 | `severity`, `category` | `medium` and `tests` today. |
-| `mutant` | Survivors only: `lane`, `mutator`, `start` and `end` (1-based, end exclusive), `original`, `replacement`, `coveredBy`, and `escalated` when a later lane ran it. |
+| `mutant` | Survivors only: `lane`, `mutator`, `start` and `end` (1-based, end exclusive), `original`, `replacement`, `coveredBy`, `escalated` when a later lane ran it, and `because` for a model mutant. |
 
 Noise and accepted survivors are in `survivors` but never in `findings`.
 
@@ -152,4 +169,4 @@ npm run test:contract # runs the fixture project through Vitest and Stryker (sec
 
 ## Status
 
-Phases 1 to 5: the `files`, `diff` (also from a change list) and `accept` commands, import-graph spec discovery with a parse cache, lanes with the fallback rule and escalation, noise classes, accepted survivors, a versioned report contract with exit codes and a progressive report, the Vitest adapter and the Stryker engine. Coming: model-written mutants, PR input, a coverage map, a Jest adapter.
+Phases 1 to 6: the `files`, `diff` (also from a change list), `accept`, `propose` and `run --mutants` commands, import-graph spec discovery with a parse cache, lanes with the fallback rule and escalation, noise classes, accepted survivors, model mutants with validation, a cache and a sandbox pool, a versioned report contract with exit codes and a progressive report, the Vitest adapter and the Stryker engine. Coming: PR input, a coverage map, a Jest adapter.

@@ -67,6 +67,7 @@ export function findingsOf(survivors: readonly Survivor[]): Finding[] {
       replacement: m.replacement,
       coveredBy: m.coveredBy,
       ...(escalated ? { escalated } : {}),
+      ...(m.because ? { because: m.because } : {}),
     },
     evidence: `${m.mutator} mutant in the ${m.lane} lane, status ${m.status}${m.statusReason ? `: ${m.statusReason}` : ''}${escalated ? `; ${laterLane(escalated)}` : ''}`,
   }));
@@ -80,6 +81,7 @@ export function laterLane(e: NonNullable<Survivor['escalated']>): string {
 
 function claimOf(m: Mutant, kind: Survivor['kind']): string {
   const change = `\`${short(m.replacement)}\``;
+  if (m.mutator === 'model') return `No test fails when ${m.file}:${m.start.line} becomes ${change}${m.because ? `: ${m.because.replace(/\.$/, '')}` : ''}.`;
   if (kind === 'static') return `${m.file}:${m.start.line} runs at module load; every test ran against ${change} and none fails.`;
   if (kind === 'noCoverage') return `No test executes ${m.file}:${m.start.line}; changing it to ${change} goes unnoticed.`;
   return `${m.coveredBy} test(s) reach ${m.file}:${m.start.line} and none fails when it becomes ${change}.`;

@@ -4,8 +4,10 @@ import { SuppressionStoreError } from '../src/adapters/fs/suppression-store.ts';
 import { GitError } from '../src/adapters/git/git-change-source.ts';
 import { SpecCommandError } from '../src/adapters/shell/command-spec-finder.ts';
 import { PrepareError } from '../src/adapters/shell/run-command.ts';
-import { EngineFailedError, TestsFailBeforeMutationError } from '../src/adapters/stryker/stryker-engine.ts';
+import { EngineFailedError } from '../src/adapters/stryker/stryker-engine.ts';
+import { SandboxNotLoadedError, TestsFailBeforeMutationError } from '../src/mutation/errors.ts';
 import { ChangeListError } from '../src/change/change-list.ts';
+import { MutantsFileError } from '../src/mutation/validate.ts';
 import { ConfigError } from '../src/cli/config.ts';
 import { EXIT, exitCodeFor, exitCodeOf, messageFor } from '../src/cli/exit-codes.ts';
 import { main } from '../src/cli/main.ts';
@@ -13,8 +15,8 @@ import { InterruptedError, UninstrumentedError, UsageError } from '../src/cli/pi
 
 test('exit codes: 2 for what the caller got wrong, 3 for a run that could not complete, 130 when interrupted', () => {
   assert.deepEqual(EXIT, { clean: 0, findings: 1, usage: 2, failed: 3, interrupted: 130 });
-  for (const err of [new UsageError('u'), new ConfigError('c'), new GitError('g'), new SuppressionStoreError('s'), new ChangeListError('l')]) assert.equal(exitCodeFor(err), 2, err.name);
-  for (const err of [new TestsFailBeforeMutationError('p', 'd'), new PrepareError('p'), new SpecCommandError('s'), new EngineFailedError('e'), new UninstrumentedError(['a.ts'], []), new Error('a bug'), 'a string']) {
+  for (const err of [new UsageError('u'), new ConfigError('c'), new GitError('g'), new SuppressionStoreError('s'), new ChangeListError('l'), new MutantsFileError('m')]) assert.equal(exitCodeFor(err), 2, err.name);
+  for (const err of [new TestsFailBeforeMutationError('p', 'd'), new PrepareError('p'), new SpecCommandError('s'), new EngineFailedError('e'), new UninstrumentedError(['a.ts'], []), new SandboxNotLoadedError(['a.ts']), new Error('a bug'), 'a string']) {
     assert.equal(exitCodeFor(err), 3, String(err));
   }
   assert.equal(exitCodeFor(new InterruptedError()), 130);

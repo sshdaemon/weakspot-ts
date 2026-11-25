@@ -14,15 +14,20 @@ export interface DiffCommandInput extends Omit<PipelineInput, 'changed' | 'chang
 }
 
 export async function diffCommand(input: DiffCommandInput) {
+  return await runPipeline(diffPipelineInput(input));
+}
+
+/** The changed files from the change list or git diff; shared by the mutation run and `propose`. */
+export function diffPipelineInput(input: DiffCommandInput): PipelineInput {
   const specs = resolveInsideRepo(input.repoRoot, input.baseDir, input.specs, 'spec');
   if (input.changeList) {
     const { list, file } = input.changeList;
     input.source.verifyHead(input.repoRoot, list.head, list.files.map((f) => f.path));
     checkListedFilesExist(input.repoRoot, list, file);
     input.log(`${list.files.length} changed file(s) from ${file} (${list.base}..${list.head})`);
-    return await runPipeline({ ...input, changed: list.files, specs, change: { kind: 'changes', detail: `${list.base}..${list.head}, from ${file}` } });
+    return { ...input, changed: list.files, specs, change: { kind: 'changes', detail: `${list.base}..${list.head}, from ${file}` } };
   }
   const changed = input.source.changes({ repoRoot: input.repoRoot, base: input.base, scope: input.scope });
   input.log(`${changed.length} changed file(s) against ${input.base} (${input.scope})`);
-  return await runPipeline({ ...input, changed, specs, change: { kind: 'diff', detail: `${input.base}, ${input.scope}` } });
+  return { ...input, changed, specs, change: { kind: 'diff', detail: `${input.base}, ${input.scope}` } };
 }
