@@ -212,3 +212,25 @@ test('deleting a test and its now-unused import is a spec change: real diff, rea
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('specifier cache with a repository scope: a second checkout of the package reads the first one\'s cache', () => {
+  const first = mkdtempSync(path.join(os.tmpdir(), 'weakspot-scope-a-'));
+  const second = mkdtempSync(path.join(os.tmpdir(), 'weakspot-scope-b-'));
+  const cacheDir = mkdtempSync(path.join(os.tmpdir(), 'weakspot-cache-'));
+  try {
+    for (const repo of [first, second]) cpSync(path.join(fixtures, 'vitest-basic'), repo, { recursive: true, filter: (src) => !src.endsWith('node_modules') });
+    const pkgOf = (repo: string) => locator.packageOf(repo, path.join(repo, 'src/price.ts'))!;
+    new ImportSpecFinder(1, DEFAULT_SPEC_PATTERNS, 'unit', cacheDir, 'org/app').find(first, pkgOf(first), 'src/format.ts', []);
+    const shared = new ImportSpecFinder(1, DEFAULT_SPEC_PATTERNS, 'unit', cacheDir, 'org/app');
+    shared.find(second, pkgOf(second), 'src/format.ts', []);
+    assert.equal(shared.parsedCount(pkgOf(second)), 0, 'same repository and package path: one cache');
+    const otherRepo = new ImportSpecFinder(1, DEFAULT_SPEC_PATTERNS, 'unit', cacheDir, 'org/other');
+    otherRepo.find(second, pkgOf(second), 'src/format.ts', []);
+    assert.ok(otherRepo.parsedCount(pkgOf(second)) > 5, 'another repository has its own');
+    const unscoped = new ImportSpecFinder(1, DEFAULT_SPEC_PATTERNS, 'unit', cacheDir);
+    unscoped.find(second, pkgOf(second), 'src/format.ts', []);
+    assert.ok(unscoped.parsedCount(pkgOf(second)) > 5, 'without a scope, per package folder');
+  } finally {
+    for (const d of [first, second, cacheDir]) rmSync(d, { recursive: true, force: true });
+  }
+});

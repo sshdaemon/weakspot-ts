@@ -1,4 +1,5 @@
 import { SuppressionStoreError } from '../adapters/fs/suppression-store.ts';
+import { PullRequestError } from '../adapters/gh/gh-pull-request-source.ts';
 import { GitError } from '../adapters/git/git-change-source.ts';
 import { SpecCommandError } from '../adapters/shell/command-spec-finder.ts';
 import { PrepareError } from '../adapters/shell/run-command.ts';
@@ -16,7 +17,7 @@ export const EXIT = {
   clean: 0,
   /** The run completed with findings in report.json. */
   findings: 1,
-  /** The command line, the repo config, git, the change list, a placeholders or mutants file, or the accepted store was wrong; nothing ran. */
+  /** The command line, the repo config, git, the change list, a placeholders or mutants file, a pull request (unreadable, another repository's, or one that changes a lockfile), or the accepted store was wrong; nothing ran. */
   usage: 2,
   /** The run could not complete: tests fail before mutation, a prepare or spec command failed, the engine failed. */
   failed: 3,
@@ -33,6 +34,7 @@ const KNOWN: readonly (readonly [ErrorClass, number])[] = [
   [SuppressionStoreError, EXIT.usage],
   [ChangeListError, EXIT.usage],
   [MutantsFileError, EXIT.usage],
+  [PullRequestError, EXIT.usage],
   [TestsFailBeforeMutationError, EXIT.failed],
   [PrepareError, EXIT.failed],
   [SpecCommandError, EXIT.failed],

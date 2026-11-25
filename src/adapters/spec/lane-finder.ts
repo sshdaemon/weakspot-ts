@@ -9,9 +9,9 @@ import { FirstSpecFinder } from './first-spec-finder.ts';
  * A lane's finder from its spec sources. `imports` in a lane after the unit lane means specs
  * matching the e2e pattern that import the file; the unit pattern's specs belong to the unit lane.
  */
-export function laneFinder(lane: LaneConfig, config: Pick<ToolConfig, 'specDepth' | 'specPattern' | 'e2ePattern'>, cacheDir?: string): SpecFinder {
+export function laneFinder(lane: LaneConfig, config: Pick<ToolConfig, 'specDepth' | 'specPattern' | 'e2ePattern'>, cacheDir?: string, cacheScope?: string): SpecFinder {
   const finders = lane.specs.map((source): SpecFinder => {
-    if (source === 'imports') return new ImportSpecFinder(config.specDepth, config, 'e2e', cacheDir);
+    if (source === 'imports') return new ImportSpecFinder(config.specDepth, config, 'e2e', cacheDir, cacheScope);
     if ('map' in source) return new MapSpecFinder(source.map);
     return new CommandSpecFinder(source.command);
   });

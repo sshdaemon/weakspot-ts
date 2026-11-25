@@ -10,6 +10,8 @@ export const USAGE = `weakspot <command> [options]
 Commands
   diff                          mutate what changed against the base branch (committed, staged, unstaged and untracked)
   files <path[:start-end]>...   mutate the given files (or line ranges)
+  pr <number|url>               mutate what a pull request changed, in a worktree of its own at its head (needs gh)
+  pr --clean                    remove the worktrees pr --keep left
   propose [<path[:start-end]>...]
                                 write placeholders.json for model-written mutants: the changed lines (or the given files)
                                 where an author may change a condition, loop header, call or returned value
@@ -18,7 +20,7 @@ Commands
   accept <id> --revoke          report it again
 
 Options
-  --repo <dir>        repo root; relative paths are resolved against it (default: found from the cwd or the first file)
+  --repo <dir>        repo root; relative paths are resolved against it (default: found from the cwd or the first file); for pr, the checkout whose origin has the pull request
   --base <ref>        diff: ref to compare with (default: the repo config's base, else the remote's default branch)
   --changes <file>    diff: read the changed files and lines from a change list file instead of git diff
   --staged            diff: only committed and staged changes
@@ -32,6 +34,8 @@ Options
   --concurrency <n>   engine worker count for every lane (default: cores, max 8)
   --exclude <a,b>     mutator names to switch off (replaces the config list)
   --quiet             only print the final summary
+  --keep              pr: leave the worktree in place, for propose and run --mutants (its path is printed)
+  --clean             pr: remove the worktrees an earlier pr --keep left, and nothing else
   --mutants <file>    run: the author's answers, { "mutants": [{ "placeholder", "replacement", "because" }] }
   --placeholders <f>  run: the placeholders file (default: placeholders.json next to --mutants)
   --reason <text>     accept: why the survivor or untested file is fine as is
@@ -53,6 +57,8 @@ export const OPTIONS = {
   concurrency: { type: 'string' },
   exclude: { type: 'string' },
   quiet: { type: 'boolean' },
+  keep: { type: 'boolean' },
+  clean: { type: 'boolean' },
   mutants: { type: 'string' },
   placeholders: { type: 'string' },
   reason: { type: 'string' },
@@ -62,7 +68,7 @@ export const OPTIONS = {
 
 export type Flags = ReturnType<typeof parseArgs<{ options: typeof OPTIONS; allowPositionals: true }>>['values'];
 
-const COMMANDS = new Set(['files', 'diff', 'propose', 'run', 'accept']);
+const COMMANDS = new Set(['files', 'diff', 'pr', 'propose', 'run', 'accept']);
 
 /** Flags that only a run of operator mutants reads. */
 const ENGINE_ONLY = ['escalate', 'exclude', 'timeout-ms', 'concurrency'] as const;
@@ -79,6 +85,8 @@ export function checkUsage(command: string, rest: readonly string[], values: Fla
     return;
   }
   if (values.reason !== undefined || values.revoke) throw new UsageError('--reason and --revoke apply to accept only');
+  if (command !== 'pr' && (values.keep || values.clean)) throw new UsageError('--keep and --clean apply to pr only');
+  if (command === 'pr') checkPrUsage(rest, values);
   if (values.mutants !== undefined || values.placeholders !== undefined) throw new UsageError('--mutants and --placeholders apply to run only');
   if (command === 'propose') {
     const engine = ENGINE_ONLY.filter((k) => values[k] !== undefined);
@@ -95,6 +103,18 @@ export function checkUsage(command: string, rest: readonly string[], values: Fla
   if (values.changes !== undefined && (values.base || values.staged || values.committed)) {
     throw new UsageError('--changes names the base and lines itself; drop --base, --staged and --committed');
   }
+}
+
+function checkPrUsage(rest: readonly string[], values: Flags): void {
+  if (values.clean) {
+    const others = Object.keys(values).filter((k) => !['clean', 'repo', 'quiet'].includes(k));
+    if (rest.length > 0 || others.length > 0) throw new UsageError('pr --clean takes no pull request and no other flags but --repo and --quiet');
+    return;
+  }
+  if (rest.length !== 1) throw new UsageError('pr: give one pull request number or URL');
+  if (!/^(\d+|https:\/\/\S+\/pull\/\d+(\/\S*)?)$/.test(rest[0]!)) throw new UsageError(`pr: ${rest[0]} is not a pull request number or URL`);
+  const fromGit = ['base', 'staged', 'committed', 'changes'].filter((k) => values[k as keyof Flags] !== undefined);
+  if (fromGit.length > 0) throw new UsageError(`pr: the pull request names its base and lines; ${fromGit.map((k) => `--${k}`).join(', ')} do not apply`);
 }
 
 function checkRunUsage(rest: readonly string[], values: Flags): void {
