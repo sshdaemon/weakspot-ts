@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, test } from 'vitest';
@@ -11,6 +11,9 @@ import { exitCodeFor } from '../src/cli/exit-codes.ts';
 import { checkUsage } from '../src/cli/flags.ts';
 import { MapFailedError, mapCommand, mapSummary, planMap, type MapCommandInput } from '../src/cli/map-command.ts';
 import { InterruptedError, UsageError } from '../src/cli/pipeline.ts';
+import { JestRunner } from '../src/adapters/jest/jest-runner.ts';
+import { RunnerSet, UnsupportedByRunnerError } from '../src/adapters/runner-set.ts';
+import { VitestRunner } from '../src/adapters/vitest/vitest-runner.ts';
 import type { RunResult, TestRunner } from '../src/ports/test-runner.ts';
 import { CoverageSpecFinder } from '../src/adapters/spec/coverage-spec-finder.ts';
 import { FirstSpecFinder } from '../src/adapters/spec/first-spec-finder.ts';
@@ -116,10 +119,28 @@ test('map: no package with the config, a runner that cannot record, and an abort
   await assert.rejects(mapCommand(input({ packages: [] }).base), (e: unknown) => e instanceof UsageError && /no package in .* has vitest-e2e\.config\.ts, the e2e lane's config/.test(e.message));
   const { base } = input();
   const { recordCoverage: _r, ...plain } = base.runner;
-  await assert.rejects(mapCommand({ ...base, runner: plain }), /the fake runner cannot record coverage/);
+  await assert.rejects(mapCommand({ ...base, runner: plain }), (e: unknown) => e instanceof UnsupportedByRunnerError && exitCodeFor(e) === 2 && e.message === 'the fake runner cannot record what each spec ran, so no coverage map can be made');
+  const mixed = input();
+  const partial = { ...mixed.base.runner, coverageRefusal: (p: Package) => (p.name === 'services/api' ? undefined : `${p.name} says no`) };
+  await assert.rejects(mapCommand({ ...mixed.base, runner: partial }), (e: unknown) => e instanceof UnsupportedByRunnerError && e.message === 'services/web says no');
+  assert.deepEqual([mixed.logs, mixed.calls], [[], []], 'refused before any prepare or suite');
   const controller = new AbortController();
   controller.abort();
   await assert.rejects(mapCommand({ ...input().base, signal: controller.signal }), InterruptedError);
+});
+
+test('map: with the real runners, a Jest package or an unknown config refuses the whole map before any prepare runs', async () => {
+  const runner = new RunnerSet([new VitestRunner(), new JestRunner()]);
+  const packages: Package[] = [
+    { dir: path.join(repo, 'services/api'), name: 'services/api', testConfig: path.join(repo, 'services/api/vitest-e2e.config.ts') },
+    { dir: path.join(repo, 'services/web'), name: 'services/web', testConfig: path.join(repo, 'services/web/jest.config.ts') },
+    { dir: path.join(repo, 'services/docs'), name: 'services/docs', testConfig: path.join(repo, 'services/docs/vitest.config.e2e.ts') },
+  ];
+  await assert.rejects(
+    mapCommand({ ...input().base, runner, packages }),
+    (e: unknown) => e instanceof UnsupportedByRunnerError && exitCodeFor(e) === 2 && e.message === 'services/web runs its tests with jest, which cannot record what each spec ran; a coverage map needs a vitest package; services/docs has vitest.config.e2e.ts, which is not a vitest or jest config',
+  );
+  assert.deepEqual(packages.map((p) => existsSync(path.join(p.dir, 'prepared.txt'))), [false, false, false]);
 });
 
 test('map usage: one lane name, and only --repo, --out and --quiet', () => {

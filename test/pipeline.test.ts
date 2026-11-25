@@ -52,7 +52,7 @@ function run(
   unit: Record<string, string[]>,
   e2e: Record<string, string[]>,
   specImports: Record<string, string[]> = {},
-  opts: { detect?: (pkg: Package) => boolean; specs?: string[]; mutants?: (plan: PackagePlan) => Mutant[]; engineWarnings?: string[]; extra?: Partial<PipelineInput> } = {},
+  opts: { detect?: (pkg: Package) => boolean; laneConfig?: string; specs?: string[]; mutants?: (plan: PackagePlan) => Mutant[]; engineWarnings?: string[]; extra?: Partial<PipelineInput> } = {},
 ) {
   const plans: PackagePlan[] = [];
   const logs: string[] = [];
@@ -68,7 +68,7 @@ function run(
   };
   const runner: TestRunner = { name: 'fake', detect: opts.detect ?? (() => true), writeShim: () => '', engineConfig: () => ({}), run: () => Promise.resolve({ passed: 0, failed: 0, failedFiles: 0, timedOut: false, durationMs: 0, output: '' }) };
   const packages: PackageLocator = { repoRoot: () => repo, packageOf: (_root, abs) => [app, lib, e2eOnly].find((p) => abs.startsWith(`${p.dir}/`)) };
-  const config = validate({ lanes: { e2e: { config: 'vitest-e2e.config.ts', specs: 'imports' } } }, 'test');
+  const config = validate({ lanes: { e2e: { config: opts.laneConfig ?? 'vitest-e2e.config.ts', specs: 'imports' } } }, 'test');
   const input: PipelineInput = {
     changed,
     change: { kind: 'diff', detail: 'test' },
@@ -167,6 +167,17 @@ test('a package whose config the runner does not know is logged and reported as 
 test('a package found by a lane config never runs in the unit lane, even when a unit spec imports the file', async () => {
   const { plans } = await run([file('e2eonly/src/a.ts')], 'fallback', { 'e2eonly/src/a.ts': ['e2eonly/src/a.test.ts'] }, { 'e2eonly/src/a.ts': ['e2eonly/e2e/a.e2e-spec.ts'] });
   assert.deepEqual(plans.map((p) => [p.lane.name, p.pkg.testConfig, p.specs]), [['e2e', e2eOnly.testConfig, ['e2eonly/e2e/a.e2e-spec.ts']]]);
+});
+
+test('a lane config given as a path inside the package, such as Nest\'s test/jest-e2e.json, keeps its package out of the unit lane', async () => {
+  const nest: Package = { dir: path.join(repo, 'nest'), name: 'nest', testConfig: path.join(repo, 'nest/test/jest-e2e.json') };
+  mkdirSync(path.join(nest.dir, 'test'), { recursive: true });
+  writeFileSync(nest.testConfig, '{}');
+  const { plans } = await run([file('nest/src/a.ts')], 'fallback', { 'nest/src/a.ts': ['nest/src/a.spec.ts'] }, { 'nest/src/a.ts': ['nest/test/a.e2e-spec.ts'] }, {}, {
+    laneConfig: 'test/jest-e2e.json',
+    extra: { packages: { repoRoot: () => repo, packageOf: () => nest } },
+  });
+  assert.deepEqual(plans.map((p) => [p.lane.name, p.pkg.testConfig, p.specs]), [['e2e', nest.testConfig, ['nest/test/a.e2e-spec.ts']]]);
 });
 
 test('--specs stays in the unit lane: later lanes get no explicit specs, and a file that falls to them says so', async () => {

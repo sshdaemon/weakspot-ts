@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { test } from 'vitest';
 import { dryRunFailures, mutatePatterns, textAt } from '../src/adapters/stryker/stryker-engine.ts';
-import { VitestRunner, envSource, failedFilesOf, shimSource } from '../src/adapters/vitest/vitest-runner.ts';
+import { envSource, failedFilesOf } from '../src/adapters/runner-cli.ts';
+import { VitestRunner, shimSource } from '../src/adapters/vitest/vitest-runner.ts';
 import { validate } from '../src/cli/config.ts';
 import { workerOffsets } from '../src/cli/pipeline.ts';
 
@@ -100,7 +104,10 @@ test('lane config: unit first, config and specs required, limits default to the 
   assert.deepEqual(several.lanes[1]!.specs, ['imports', { command: 'bin/specs-for' }]);
   assert.throws(() => validate({ lanes: { e2e: { specs: 'imports' } } }, 'cfg'), /lanes\.e2e\.config is required/);
   assert.throws(() => validate({ lanes: { e2e: { config: 'x.config.ts' } } }, 'cfg'), /lanes\.e2e\.specs is required/);
-  assert.throws(() => validate({ lanes: { e2e: { config: 'a/x.config.ts', specs: 'imports' } } }, 'cfg'), /must be a file name/);
+  assert.equal(validate({ lanes: { e2e: { config: 'test/jest-e2e.json', specs: 'imports' } } }, 'cfg').lanes[1]!.config, 'test/jest-e2e.json');
+  for (const bad of ['../x.config.ts', '/abs/x.config.ts', './x.config.ts', 'a//x.config.ts', 'a\\x.config.ts', 'a/../x.config.ts']) {
+    assert.throws(() => validate({ lanes: { e2e: { config: bad, specs: 'imports' } } }, 'cfg'), /must be a plain path inside the package/, bad);
+  }
   assert.throws(() => validate({ lanes: { e2e: { config: 'x.config.ts', specs: { map: [['(', 'g']] } } } }, 'cfg'), /not a valid regex/);
   assert.throws(() => validate({ lanes: { e2e: { config: 'x.config.ts', specs: 'imports' }, unit: {} } }, 'cfg'), /unit lane must be listed first/);
   assert.throws(() => validate({ lanes: { unit: { specs: 'imports' } } }, 'cfg'), /lanes\.unit\.specs cannot be set/);
@@ -155,4 +162,19 @@ const r = (failed: number, failedSuites: number, code: number | null, timedOut =
 
 test('failedFilesOf: failed suites without a failing test, or a non-zero exit with nothing to show for it; never on a timeout or a failing test', () => {
   assert.deepEqual([r(0, 2, 1), r(0, 0, 1), r(0, 0, null), r(0, 0, 0), r(1, 1, 1), r(0, 1, 1, true), r(0, 0, 0, true)], [2, 1, 1, 0, 0, 0, 0]);
+});
+
+test('vitest shim, evaluated: a globalSetup the package can resolve as a module keeps its name, a relative one points into the real package', async () => {
+  const dir = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'weakspot-vshim-')));
+  try {
+    mkdirSync(path.join(dir, 'node_modules', 'some-mod'), { recursive: true });
+    writeFileSync(path.join(dir, 'node_modules', 'some-mod', 'package.json'), JSON.stringify({ name: 'some-mod', main: 'index.js' }));
+    writeFileSync(path.join(dir, 'node_modules', 'some-mod', 'index.js'), 'module.exports = {};\n');
+    writeFileSync(path.join(dir, 'vitest.config.mjs'), "export default { test: { globalSetup: ['some-mod', './setup.ts'] } };\n");
+    const shim = new VitestRunner().writeShim({ name: 'app', dir, testConfig: path.join(dir, 'vitest.config.mjs') }, { root: '/sandbox', include: ['a.test.ts'] }, path.join(dir, 'work', 'runner.shim.mts'));
+    const cfg = ((await import(shim)) as { default: { test: { globalSetup: string[] } } }).default;
+    assert.deepEqual(cfg.test.globalSetup, ['some-mod', path.join(dir, 'setup.ts')]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -9,6 +9,7 @@ import { MutantsFileError } from '../mutation/validate.ts';
 import { ChangeListError } from '../change/change-list.ts';
 import type { Report } from '../report/types.ts';
 import { ConfigError } from './config.ts';
+import { UnsupportedByRunnerError } from '../adapters/runner-set.ts';
 import { MapFailedError } from './map-command.ts';
 import { InterruptedError, UninstrumentedError, UsageError } from './pipeline.ts';
 
@@ -36,6 +37,7 @@ const KNOWN: readonly (readonly [ErrorClass, number])[] = [
   [ChangeListError, EXIT.usage],
   [MutantsFileError, EXIT.usage],
   [PullRequestError, EXIT.usage],
+  [UnsupportedByRunnerError, EXIT.usage],
   [TestsFailBeforeMutationError, EXIT.failed],
   [PrepareError, EXIT.failed],
   [SpecCommandError, EXIT.failed],

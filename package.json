@@ -1,11 +1,12 @@
 {
   "name": "weakspot-ts",
   "version": "0.1.0",
-  "description": "Mutation checks on the lines a change touched, for TypeScript projects tested with Vitest. Finds the weak spots in a test suite without a repo-wide run.",
+  "description": "Mutation checks on the lines a change touched, for TypeScript projects tested with Vitest or Jest. Finds the weak spots in a test suite without a repo-wide run.",
   "keywords": [
     "mutation-testing",
     "stryker",
     "vitest",
+    "jest",
     "typescript",
     "testing",
     "test-quality",
@@ -36,11 +37,15 @@
   },
   "dependencies": {
     "@stryker-mutator/core": "10.1.1",
+    "@stryker-mutator/jest-runner": "10.1.1",
     "@stryker-mutator/vitest-runner": "10.1.1",
     "vitest": "5.0.5"
   },
   "devDependencies": {
+    "@babel/preset-env": "8.0.7",
+    "@babel/preset-typescript": "8.0.7",
     "@types/node": "24.10.0",
+    "jest": "30.5.2",
     "oxlint": "1.90.0",
     "typescript": "6.0.3"
   }

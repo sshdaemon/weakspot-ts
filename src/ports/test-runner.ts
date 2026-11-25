@@ -45,15 +45,20 @@ export interface RunOptions {
 export interface TestRunner {
   readonly name: string;
   detect(pkg: Package): boolean;
-  /** Writes a config that wraps the package's own config and narrows root and include. Returns its path. */
+  /**
+   * Writes a config that wraps the package's own config and narrows root and include. Returns its
+   * path, which may differ from `outPath` in its extension (a runner reads only some config file types).
+   */
   writeShim(pkg: Package, opts: ShimOptions, outPath: string): string;
-  /** The `testRunner` and plugin options for the mutation engine. */
-  engineConfig(shimPath: string): Record<string, unknown>;
+  /** The `testRunner` and plugin options for the mutation engine, given the shim `writeShim` wrote for `pkg`. */
+  engineConfig(pkg: Package, shimPath: string): Record<string, unknown>;
   /**
    * Runs the package's whole suite once, each spec file isolated, and records the modules each spec
    * file executed (absolute spec path to absolute module ids). For the coverage map; optional per runner.
    */
   recordCoverage?(pkg: Package, opts: CoverageRunOptions): Promise<{ executed: Map<string, string[]>; result: RunResult }>;
+  /** Why recordCoverage cannot work for this package, or undefined when it can; without it, recordCoverage existing is the answer. */
+  coverageRefusal?(pkg: Package): string | undefined;
   /** Runs the specs the shim includes once via the runner's CLI, in `cwd`; a non-finite `timeoutMs` sets no limit. */
   run(pkg: Package, shimPath: string, cwd: string, timeoutMs: number, opts?: RunOptions): Promise<RunResult>;
 }

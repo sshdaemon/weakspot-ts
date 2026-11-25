@@ -25,6 +25,8 @@ Where the [mutation-testing report schema](https://github.com/stryker-mutator/mu
 | Changed-spec rule | A changed spec causes the sources it imports to be mutated whole, with that spec alone as the spec set. |
 | Package | A directory with its own `package.json` and test config. A monorepo has several; each is run on its own, once per lane that has a config in it. |
 | Lane | One way of running tests against a package: a runner config, a way to find the specs for a file, and its own limits. Configured by the client; the tool ships only the unit lane. |
+| Test runner | The framework that runs a package's specs: Vitest or Jest, chosen per package from its configs (a Vitest config, then a Jest config or package.json `jest` key, then a Vite config). The engine drives it through a shim. |
+| Shim | A config the tool writes outside the project that wraps the package's own runner config and narrows its root and specs to what one run needs. |
 | Unit lane | The lane whose specs are found through imports, using the package's own config. Runs first for every kept file. |
 | E2e lane | A lane whose specs boot the application in the test process and are found by a spec mapping, a command, or e2e specs that import the file. Runs for files the unit lane left untested, unless `--lanes` asks for every file. |
 | Fallback | The rule that sends a file with no specs in one lane to the next configured lane. The report lists such files under "checked by a later lane". |

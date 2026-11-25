@@ -6,15 +6,23 @@ import type { Package } from '../../change/types.ts';
 import type { PackageLocator } from '../../ports/package-locator.ts';
 import { GitError } from '../git/git-change-source.ts';
 
-/** The unit lane's config names, tried in this order. */
-export const UNIT_TEST_CONFIGS = ['vitest', 'vite'].flatMap((n) => ['mts', 'ts', 'cts', 'mjs', 'js', 'cjs'].map((e) => `${n}.config.${e}`));
+const VITEST_CONFIGS = ['mts', 'ts', 'cts', 'mjs', 'js', 'cjs'].map((e) => `vitest.config.${e}`);
+const JEST_CONFIGS = ['ts', 'mts', 'cts', 'js', 'mjs', 'cjs', 'json'].map((e) => `jest.config.${e}`);
+const VITE_CONFIGS = ['mts', 'ts', 'cts', 'mjs', 'js', 'cjs'].map((e) => `vite.config.${e}`);
+
+/**
+ * The unit lane's config names, in the order they decide a package's runner: a Vitest config, then a
+ * Jest one (or a `jest` key in package.json, checked right after), then a Vite config, which a Jest
+ * project may keep for its build alone.
+ */
+export const UNIT_TEST_CONFIGS = [...VITEST_CONFIGS, ...JEST_CONFIGS, ...VITE_CONFIGS];
 
 export class FsPackageLocator implements PackageLocator {
-  private readonly configNames: readonly string[];
+  private readonly laneConfigs: readonly string[];
 
-  /** `laneConfigs`: further config file names (the lanes') that also make a directory a package. */
+  /** `laneConfigs`: further configs (the lanes', paths inside a package) that also make a directory a package. */
   constructor(laneConfigs: readonly string[] = []) {
-    this.configNames = [...UNIT_TEST_CONFIGS, ...laneConfigs];
+    this.laneConfigs = laneConfigs;
   }
 
   /** Nearest ancestor holding `pnpm-workspace.yaml` or `.git`, else `start` itself. */
@@ -50,12 +58,15 @@ export class FsPackageLocator implements PackageLocator {
     return undefined;
   }
 
+  /** The unit lane's config before any lane's, so a lane config never takes a package the unit lane runs. */
   private testConfigIn(dir: string): string | undefined {
-    return this.configNames.map((c) => path.join(dir, c)).find((c) => existsSync(c));
+    const first = (names: readonly string[]) => names.map((c) => path.join(dir, c)).find((c) => existsSync(c));
+    const pkgJson = path.join(dir, 'package.json');
+    return first([...VITEST_CONFIGS, ...JEST_CONFIGS]) ?? (hasJestKey(pkgJson) ? pkgJson : undefined) ?? first([...VITE_CONFIGS, ...this.laneConfigs]);
   }
 }
 
-/** Every package of the checkout with `configName`: tracked folders holding both it and a package.json. */
+/** Every package of the checkout with `configName` (a path inside it): tracked folders holding both it and a package.json. */
 export function packagesWithConfig(repoRoot: string, configName: string): Package[] {
   let tracked: string;
   try {
@@ -65,12 +76,21 @@ export function packagesWithConfig(repoRoot: string, configName: string): Packag
   }
   return tracked
     .split('\n')
-    .filter((f) => f && path.basename(f) === configName)
-    .map((f) => path.join(repoRoot, path.dirname(f)))
+    .filter((f) => f === configName || f.endsWith(`/${configName}`))
+    .map((f) => path.join(repoRoot, f.slice(0, -configName.length)))
     .filter((dir) => existsSync(path.join(dir, 'package.json')))
     .toSorted()
     .map((dir) => {
       const name = (JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8')) as { name?: string }).name ?? path.basename(dir);
       return { dir, name, testConfig: path.join(dir, configName) };
     });
+}
+
+/** A `jest` key in a package.json: Jest's config kept there. The locator and the Jest runner share this rule. */
+export function hasJestKey(pkgJson: string): boolean {
+  try {
+    return (JSON.parse(readFileSync(pkgJson, 'utf8')) as { jest?: unknown }).jest !== undefined;
+  } catch {
+    return false;
+  }
 }
