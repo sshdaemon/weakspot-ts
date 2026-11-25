@@ -250,3 +250,11 @@ test('only a JSX && gives its left side a condition; ||, ?? and an if keep their
   assert.deepEqual(summary(finder.find('a.tsx', tsx)).filter((x) => x.includes('condition')), ['1:77 condition a']);
   assert.deepEqual(summary(finder.find('a.ts', 'if (a && b) go();\n')).filter((x) => x.includes('condition')), ['1:5 condition a && b']);
 });
+
+test.each<[string, string]>([
+  ['a function expression', 'export const a = run(function () { return 1; });\n'],
+  ['a self-closing element', 'export const a = run(<X />);\n'],
+  ['a fragment', 'export const a = run(<>a</>);\n'],
+])('an argument list holding %s is wide', (_name, text) => {
+  assert.equal(finder.find('a.tsx', text).find((x) => x.kind === 'callArguments')!.wide, true);
+});

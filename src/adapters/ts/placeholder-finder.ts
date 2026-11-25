@@ -122,10 +122,13 @@ function found(sf: ts.SourceFile, s: Span): FoundPlaceholder {
   return holdsFunctionOrJsx(s) ? { ...p, wide: true } : p;
 }
 
-/** A function or a JSX element inside the span: such a fragment is too big to rewrite for one changed line. */
+/** Nodes that make a fragment too big to rewrite for one changed line. */
+const WIDE_KINDS: ReadonlySet<ts.SyntaxKind> = new Set([ts.SyntaxKind.ArrowFunction, ts.SyntaxKind.FunctionExpression, ts.SyntaxKind.JsxElement, ts.SyntaxKind.JsxSelfClosingElement, ts.SyntaxKind.JsxFragment]);
+
+/** A function or a JSX element inside the span. */
 function holdsFunctionOrJsx(s: Span): boolean {
   const inside = (n: ts.Node): boolean => {
-    if (n.getStart() >= s.start && n.getEnd() <= s.end && (ts.isArrowFunction(n) || ts.isFunctionExpression(n) || ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n) || ts.isJsxFragment(n))) return true;
+    if (WIDE_KINDS.has(n.kind) && n.getStart() >= s.start && n.getEnd() <= s.end) return true;
     return ts.forEachChild(n, inside) ?? false;
   };
   return inside(s.node);
