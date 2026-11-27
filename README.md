@@ -168,6 +168,10 @@ What a consumer (a review step, a script, an agent) can rely on. New fields may 
 
 Noise and accepted survivors are in `survivors` but never in `findings`.
 
+## With a review loop
+
+The [fresh-eyes](https://github.com/sshdaemon/workbench) review loop runs weakspot as its mutation check on the change list tangle-ts writes, so both look at the same lines. A survivor is fixed with a test, never by changing the code under test, and one left as it is gets accepted with the ledger entry as the reason. Its [profile recipes](https://github.com/sshdaemon/workbench/blob/main/plugins/fresh-eyes/PROFILE.md#recipes) have the commands to set it up.
+
 ## Develop
 
 ```bash
