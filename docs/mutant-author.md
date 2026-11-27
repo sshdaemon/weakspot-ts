@@ -48,4 +48,4 @@ A JSON file with one entry per mutant:
 }
 ```
 
-Then run `weakspot run --mutants <that file>`. Rejected answers are listed in `rejected.json` next to the report with the reason; fix them in the same file and run it again.
+Check it with `weakspot run --mutants <that file> --check`, which judges every answer without running any and lists the rejected ones with the reason in `check-rejected.json`; fix them in the same file and check again. Then run it without `--check`.

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, test } from 'vitest';
 import { TsPlaceholderFinder } from '../src/adapters/ts/placeholder-finder.ts';
 import type { Package } from '../src/change/types.ts';
 import { validate } from '../src/cli/config.ts';
-import { readMutantEntries, readPlaceholders, runMutants, type MutantsCommandInput } from '../src/cli/mutants-command.ts';
+import { checkMutants, readMutantEntries, readPlaceholders, runMutants, type MutantsCommandInput } from '../src/cli/mutants-command.ts';
 import { exitCodeFor } from '../src/cli/exit-codes.ts';
 import { TestsFailBeforeMutationError } from '../src/mutation/errors.ts';
 import { MutantsFileError } from '../src/mutation/validate.ts';
@@ -142,6 +142,20 @@ function runInput(placeholders: PlaceholderFile, entries: unknown[], over: Parti
 }
 
 const answer = (placeholder: string, replacement: string, because = 'it differs') => ({ placeholder, replacement, because });
+
+test('run --check: judges the answers as a run would and writes only the rejections; nothing runs, no report, record or cache', () => {
+  const proposeCache = new MemoryCache();
+  const first = propose(proposeInput(proposeCache).input).file;
+  const [cond, ret] = first.placeholders;
+  proposeCache.entries.set(ret!.id, [{ replacement: 'n >= 0', because: 'cached reading' }]);
+  const placeholders = propose(proposeInput(proposeCache).input).file;
+  const { input } = runInput(placeholders, [answer(cond!.id, "role !== 'admin'"), answer(cond!.id, "role === 'kill'"), answer(cond!.id, 'role ===')]);
+  const checked = checkMutants(input);
+  assert.deepEqual([checked.answered, checked.cached, checked.rejected.map((r) => r.replacement)], [2, 1, ['role ===']]);
+  assert.deepEqual(JSON.parse(readFileSync(path.join(out, 'check-rejected.json'), 'utf8')), { rejected: checked.rejected });
+  for (const f of ['report.json', 'report.md', 'mutants.json', 'rejected.json']) assert.equal(existsSync(path.join(out, f)), false, f);
+  assert.throws(() => checkMutants({ ...input, out: path.join(repo, 'o') }), UsageError);
+});
 
 test('run --mutants: valid answers and unanswered cached ones run, results merge into the report in --out, record and rejections written', async () => {
   const proposeCache = new MemoryCache();

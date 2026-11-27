@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'vitest';
@@ -38,6 +38,14 @@ test('propose, then run an author\'s mutants with Vitest in sandboxes, merged in
         ],
       }),
     );
+    const before = readFileSync(path.join(out, 'report.json'), 'utf8');
+    assert.equal(await main(['run', '--mutants', path.join(out, 'answers.json'), '--check', '--quiet']), 1, 'check: one answer is rejected');
+    const checked = JSON.parse(readFileSync(path.join(out, 'check-rejected.json'), 'utf8')) as { rejected: { reason: string }[] };
+    assert.deepEqual(checked.rejected.map((r) => r.reason.split(':')[0]), ['does not parse']);
+    assert.equal(readFileSync(path.join(out, 'report.json'), 'utf8'), before, 'check leaves the report alone');
+    assert.deepEqual(['mutants.json', 'rejected.json'].map((f) => existsSync(path.join(out, f))), [false, false]);
+    writeFileSync(path.join(out, 'valid.json'), JSON.stringify({ mutants: [{ placeholder: id('Math.round'), replacement: 'Math.ceil', because: 'a part penny rounds up' }] }));
+    assert.equal(await main(['run', '--mutants', path.join(out, 'valid.json'), '--placeholders', path.join(out, 'placeholders.json'), '--check', '--quiet']), 0, 'check: nothing rejected');
     assert.equal(await main(['run', '--mutants', path.join(out, 'answers.json'), '--quiet']), 1);
     const report = JSON.parse(readFileSync(path.join(out, 'report.json'), 'utf8')) as Report;
     const model = report.mutants.filter((m) => m.mutator === 'model');

@@ -21,6 +21,8 @@ import { PLACEHOLDERS_FILE } from './propose-command.ts';
 
 export const RECORD_FILE = 'mutants.json';
 export const REJECTED_FILE = 'rejected.json';
+/** `run --check` output, apart from the run's own record so a check never rewrites what a run reported. */
+export const CHECK_REJECTED_FILE = 'check-rejected.json';
 
 export interface MutantsCommandInput {
   readonly placeholders: PlaceholderFile;
@@ -66,6 +68,29 @@ function readJson(file: string): unknown {
   }
 }
 
+function refuseOutInRepo(repoRoot: string, out: string): void {
+  if (isInside(repoRoot, out)) throw new UsageError(`--out ${out} is inside the repo ${repoRoot}; the mutant sandboxes must live outside it`);
+}
+
+/** The answers judged against the placeholders and the files as they read now, without running anything. */
+function judge(input: Pick<MutantsCommandInput, 'placeholders' | 'entries' | 'finder'>): { valid: ValidMutant[]; rejected: Rejection[]; source: (file: string) => string } {
+  const source = sourceReader(input.placeholders.repo);
+  const misfit: Misfit = (p, replacement) => input.finder.misfit(p.file, source(p.file), p, replacement);
+  return { ...validateMutants(input.entries, input.placeholders.placeholders, misfit), source };
+}
+
+/**
+ * `run --check`: judges the answers as a run would and writes only the rejections, to their own file
+ * in `out`, so an author can fix them before the run. Runs no tests and leaves the run's files and the cache alone.
+ */
+export function checkMutants(input: Pick<MutantsCommandInput, 'placeholders' | 'entries' | 'finder' | 'out'>): { answered: number; cached: number; rejected: readonly Rejection[] } {
+  refuseOutInRepo(input.placeholders.repo, input.out);
+  const { valid, rejected } = judge(input);
+  mkdirSync(input.out, { recursive: true });
+  writeFileSync(path.join(input.out, CHECK_REJECTED_FILE), `${JSON.stringify({ rejected }, null, 2)}\n`);
+  return { answered: valid.filter((v) => !v.cached).length, cached: valid.filter((v) => v.cached).length, rejected };
+}
+
 /**
  * Judges the answers, runs the valid ones in sandboxes per lane and package, and merges the results
  * into the report in `out`. Writes the replayable record and the rejections next to it.
@@ -73,10 +98,8 @@ function readJson(file: string): unknown {
 export async function runMutants(input: MutantsCommandInput): Promise<{ report: Report; rejected: readonly Rejection[] }> {
   const { placeholders, out } = input;
   const repoRoot = placeholders.repo;
-  if (isInside(repoRoot, out)) throw new UsageError(`--out ${out} is inside the repo ${repoRoot}; the mutant sandboxes must live outside it`);
-  const source = sourceReader(repoRoot);
-  const misfit: Misfit = (p, replacement) => input.finder.misfit(p.file, source(p.file), p, replacement);
-  const { valid, rejected } = validateMutants(input.entries, placeholders.placeholders, misfit);
+  refuseOutInRepo(repoRoot, out);
+  const { valid, rejected, source } = judge(input);
   input.log(`${valid.length} model mutant(s) to run (${valid.filter((v) => v.cached).length} cached), ${rejected.length} rejected`);
 
   mkdirSync(out, { recursive: true });

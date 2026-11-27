@@ -18,6 +18,7 @@ Commands
                                 write placeholders.json for model-written mutants: the changed lines (or the given files)
                                 where an author may change a condition, loop header, call or returned value
   run --mutants <file>          run an author's mutants against placeholders.json and merge them into report.json
+  run --mutants <file> --check  only judge the answers and write check-rejected.json; runs no tests
   accept <id> --reason <text>   stop reporting a survivor or an untested file (ids are in report.json findings)
   accept <id> --revoke          report it again
 
@@ -40,6 +41,7 @@ Options
   --clean             pr: remove the worktrees an earlier pr --keep left, and nothing else
   --mutants <file>    run: the author's answers, { "mutants": [{ "placeholder", "replacement", "because" }] }
   --placeholders <f>  run: the placeholders file (default: placeholders.json next to --mutants)
+  --check             run: judge the answers without running them (exit 1 when any is rejected)
   --reason <text>     accept: why the survivor or untested file is fine as is
   --revoke            accept: remove an earlier acceptance
 `;
@@ -65,6 +67,7 @@ export const OPTIONS = {
   placeholders: { type: 'string' },
   reason: { type: 'string' },
   revoke: { type: 'boolean' },
+  check: { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
 } as const;
 
@@ -93,6 +96,7 @@ export function checkUsage(command: string, rest: readonly string[], values: Fla
     return;
   }
   if (values.reason !== undefined || values.revoke) throw new UsageError('--reason and --revoke apply to accept only');
+  if (values.check) throw new UsageError('--check applies to run only');
   if (command !== 'pr' && (values.keep || values.clean)) throw new UsageError('--keep and --clean apply to pr only');
   if (command === 'pr') checkPrUsage(rest, values);
   if (values.mutants !== undefined || values.placeholders !== undefined) throw new UsageError('--mutants and --placeholders apply to run only');
@@ -128,8 +132,10 @@ function checkPrUsage(rest: readonly string[], values: Flags): void {
 function checkRunUsage(rest: readonly string[], values: Flags): void {
   if (rest.length > 0) throw new UsageError('run takes no paths; pass the answers with --mutants');
   if (!values.mutants) throw new UsageError('run: --mutants <file> is required');
-  const others = Object.keys(values).filter((k) => !['repo', 'mutants', 'placeholders', 'out', 'quiet', 'timeout-ms', 'concurrency'].includes(k));
+  const others = Object.keys(values).filter((k) => !['repo', 'mutants', 'placeholders', 'out', 'quiet', 'timeout-ms', 'concurrency', 'check'].includes(k));
   if (others.length > 0) throw new UsageError(`run: ${others.map((k) => `--${k}`).join(', ')} do not apply`);
+  const engine = (['timeout-ms', 'concurrency'] as const).filter((k) => values[k] !== undefined);
+  if (values.check && engine.length > 0) throw new UsageError(`run --check runs no tests: ${engine.map((k) => `--${k}`).join(', ')} do not apply`);
 }
 
 /** The repo config with command-line flags applied; a limit flag applies to every lane. */
