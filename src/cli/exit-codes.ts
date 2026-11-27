@@ -17,7 +17,7 @@ import { InterruptedError, UninstrumentedError, UsageError } from './pipeline.ts
 export const EXIT = {
   /** The run completed with no findings. */
   clean: 0,
-  /** The run completed with findings in report.json. */
+  /** The run completed with findings in report.json; for `run --check`, some answers were rejected (check-rejected.json). */
   findings: 1,
   /** The command line, the repo config, git, the change list, a placeholders or mutants file, a pull request (unreadable, another repository's, or one that changes a lockfile), or the accepted store was wrong; nothing ran. */
   usage: 2,

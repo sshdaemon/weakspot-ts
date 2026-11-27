@@ -92,6 +92,9 @@ test('run: --mutants required, no paths, and only the flags it reads', () => {
   assert.throws(() => checkUsage('run', [], {}), /run: --mutants <file> is required/);
   assert.throws(() => checkUsage('run', ['a.ts'], { mutants: 'm.json' }), /run takes no paths/);
   assert.throws(() => checkUsage('run', [], { mutants: 'm.json', base: 'main', lanes: 'all' }), /run: --base, --lanes do not apply/);
+  assert.doesNotThrow(() => checkUsage('run', [], { mutants: 'm.json', check: true, out: 'o', quiet: true }));
+  assert.throws(() => checkUsage('run', [], { mutants: 'm.json', check: true, 'timeout-ms': '9', concurrency: '2' }), /run --check runs no tests: --timeout-ms, --concurrency do not apply/);
+  assert.throws(() => checkUsage('diff', [], { check: true }), /--check applies to run only/);
 });
 
 test('pr: one number or URL, or --clean alone; the lines come from the pull request', () => {

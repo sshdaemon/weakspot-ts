@@ -23,7 +23,7 @@ import { loadConfig, repoKeyOf, weakspotHome, type ToolConfig } from './config.t
 import { readChangeList, repoRootOf } from './change-list-input.ts';
 import { diffPipelineInput } from './diff-command.ts';
 import { filesPipelineInput } from './files-command.ts';
-import { readMutantEntries, readPlaceholders, runMutants } from './mutants-command.ts';
+import { CHECK_REJECTED_FILE, checkMutants, readMutantEntries, readPlaceholders, runMutants } from './mutants-command.ts';
 import { mapCommand, mapSummary, planMap } from './map-command.ts';
 import { cleanWorktrees, prCommand } from './pr-command.ts';
 import { PLACEHOLDERS_FILE, propose, proposeSummary } from './propose-command.ts';
@@ -184,6 +184,11 @@ async function runCommand(argv: string[], values: Flags): Promise<number> {
   log(`repo: ${repoRoot} (config: ${source})`);
   const repoKey = repoKeyOf(repoRoot, remote);
   const out = values.out ? path.resolve(values.out) : path.dirname(placeholdersPath);
+  if (values.check) {
+    const { answered, cached, rejected } = checkMutants({ placeholders, entries, finder: new TsPlaceholderFinder(), out });
+    process.stdout.write(`${answered} answer(s) valid, ${rejected.length} rejected, ${cached} cached mutant(s) would run too\nrejected: ${path.join(out, CHECK_REJECTED_FILE)}\n`);
+    return rejected.length > 0 ? EXIT.findings : EXIT.clean;
+  }
   const interrupt = new AbortController();
   const started = Date.now();
   const { report } = await withSignals(interrupt, () => runMutants({
